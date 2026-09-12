@@ -277,17 +277,56 @@ const BARE_PATTERNS = [
   /\bimport\s*\(\s*['"]([^'"\n]+)['"]\s*\)/g,
 ];
 
+/** Local names introduced by an import clause, default and namespace included. */
+function boundNames(clause: string): string[] {
+  const names: string[] = [];
+
+  const block = /\{([^}]*)\}/.exec(clause);
+  if (block) names.push(...exposedNames(block[1]));
+
+  const namespace = /\*\s+as\s+(\w+)/.exec(clause);
+  if (namespace) names.push(namespace[1]);
+
+  // Whatever sits before the first brace or star is the default binding.
+  const head = clause.split(/[{*]/)[0].replace(/,\s*$/, '').trim();
+  if (/^\w+$/.test(head)) names.push(head);
+
+  return names;
+}
+
 /**
- * Resolved module ids this file imports.
+ * Whether a binding is used in a way that could move data.
+ *
+ * Calling it, or reaching into it, both count: `saveEvent(payload)` and
+ * `prisma.client.user.create(...)` are equally real. Rendering it as a JSX tag
+ * does not, and that single exclusion removes the bulk of the false paths in a
+ * front end, where components import components that import components without
+ * ever handing each other a payload.
+ */
+function isInvoked(name: string, text: string): boolean {
+  return new RegExp(`\\b${name}\\s*[(.]`).test(text);
+}
+
+export interface ExtractedImports {
+  imports: string[];
+  flows: string[];
+}
+
+/**
+ * Resolved module ids this file imports, and the subset data can travel along.
  *
  * Matched against the whole file rather than line by line. A multi-line import
  * puts the specifier on a closing line carrying no `import` keyword, and in a
  * TypeScript codebase that is most of them.
  */
-export function extractImports(file: ScannedFile, index: ModuleIndex): string[] {
-  const found = new Set<string>();
-  const add = (id: string | null) => {
-    if (id && id !== file.path) found.add(id);
+export function extractImports(file: ScannedFile, index: ModuleIndex): ExtractedImports {
+  const imports = new Set<string>();
+  const flows = new Set<string>();
+
+  const add = (id: string | null, carriesData: boolean) => {
+    if (!id || id === file.path) return;
+    imports.add(id);
+    if (carriesData) flows.add(id);
   };
 
   IMPORT_STATEMENT.lastIndex = 0;
@@ -298,13 +337,13 @@ export function extractImports(file: ScannedFile, index: ModuleIndex): string[] 
     if (!target) continue;
 
     const block = /\{([^}]*)\}/.exec(clause);
-    const isBarrel =
-      index.namedReexports.has(target) || index.starReexports.has(target);
+    const isBarrel = index.namedReexports.has(target) || index.starReexports.has(target);
 
-    // A default or namespace import gives no name to chase, so the best
-    // available answer is the module itself.
+    // A default or namespace import gives no name to chase through a barrel, so
+    // the module itself is the best available answer.
     if (!block || !isBarrel) {
-      add(target);
+      const used = boundNames(clause).some((name) => isInvoked(name, file.text));
+      add(target, used);
       continue;
     }
 
@@ -312,20 +351,23 @@ export function extractImports(file: ScannedFile, index: ModuleIndex): string[] 
     for (const name of exposedNames(block[1])) {
       const owner = resolveThroughBarrel(target, name, index);
       if (owner) {
-        add(owner);
+        add(owner, isInvoked(name, file.text));
         resolvedAny = true;
       }
     }
-    if (!resolvedAny) add(target);
+    if (!resolvedAny) {
+      add(target, boundNames(clause).some((name) => isInvoked(name, file.text)));
+    }
   }
 
+  // A side-effect import binds no name, so there is nothing to hand data to.
   for (const pattern of BARE_PATTERNS) {
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(file.text)) !== null) {
-      add(resolveSpecifier(match[1], file.path, index.known, index.aliases));
+      add(resolveSpecifier(match[1], file.path, index.known, index.aliases), false);
     }
   }
 
-  return [...found];
+  return { imports: [...imports], flows: [...flows] };
 }

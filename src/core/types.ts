@@ -86,6 +86,15 @@ export interface Module {
   id: string;
   /** Module ids this file imports, already resolved. Unresolved ones are dropped. */
   imports: string[];
+  /**
+   * The subset of `imports` where the imported binding is actually invoked or
+   * has its members used, rather than only rendered as a JSX tag.
+   *
+   * Reachability runs over this, not over `imports`. An import on its own is
+   * not evidence that data travels: a component importing another component is
+   * the most common edge in a front end and carries nothing.
+   */
+  flows: string[];
   /** Touchpoint ids found in this file. */
   touchpoints: string[];
 }

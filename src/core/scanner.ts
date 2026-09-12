@@ -106,10 +106,10 @@ function buildFlowEdges(modules: Module[], entryModules: Set<string>): Map<strin
 
   for (const module of modules) {
     const existing = edges.get(module.id);
-    if (existing) existing.push(...module.imports);
-    else edges.set(module.id, [...module.imports]);
+    if (existing) existing.push(...module.flows);
+    else edges.set(module.id, [...module.flows]);
 
-    for (const imported of module.imports) {
+    for (const imported of module.flows) {
       if (!entryModules.has(imported)) continue;
       const back = edges.get(imported);
       if (back) back.push(module.id);
@@ -250,9 +250,11 @@ export function scan(files: ScannedFile[], rootName: string, skippedCount = 0): 
     const found = RULES.flatMap((rule) => matchRuleInFile(rule, file, lines));
     touchpoints.push(...found);
 
+    const { imports, flows } = extractImports(file, index);
     modules.push({
       id: file.path,
-      imports: extractImports(file, index),
+      imports,
+      flows,
       touchpoints: found.map((tp) => tp.id),
     });
   }
