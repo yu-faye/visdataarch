@@ -1,117 +1,73 @@
 import { useMemo } from 'react';
-import type { ScanResult, Touchpoint } from '../core/types';
-import {
-  DATA_CLASS_LABEL,
-  JURISDICTION_LABEL,
-  KIND_COLOR,
-  KIND_LABEL,
-  KIND_MEANING,
-  KIND_ORDER,
-  SEVERITY_COLOR,
-} from './theme';
+import type { ScanResult } from '../core/types';
+import { KIND_COLOR, KIND_LABEL, KIND_MEANING, KIND_ORDER } from './theme';
+import { VulnDetail, VulnList, type Vuln } from './vuln';
 
 interface SovereigntyPanelProps {
   result: ScanResult;
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
+  lead?: string;
+  vulns: Vuln[];
+  selectedVulnId: string | null;
+  onSelectVuln: (id: string) => void;
+  onShowFlow: () => void;
 }
 
-export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPanelProps) {
-  const byId = useMemo(
-    () => new Map(result.touchpoints.map((tp) => [tp.id, tp])),
-    [result.touchpoints],
+export function SovereigntyPanel({
+  result,
+  lead,
+  vulns,
+  selectedVulnId,
+  onSelectVuln,
+  onShowFlow,
+}: SovereigntyPanelProps) {
+  const selected = useMemo(
+    () => vulns.find((vuln) => vuln.id === selectedVulnId) ?? null,
+    [vulns, selectedVulnId],
   );
-
-  const counts: Record<string, number> = {
-    entry: result.stats.entries,
-    store: result.stats.stores,
-    exit: result.stats.exits,
-    log: result.stats.logs,
-  };
-
-  // Read off the touchpoints, not the paths. These are words the scanner saw
-  // near a line, which says something about that line and nothing about where
-  // the data goes afterwards.
-  const classes = useMemo(() => {
-    const found = new Set(
-      result.touchpoints.flatMap((tp) => tp.dataClasses.filter((cls) => cls !== 'unknown')),
-    );
-    return [...found];
-  }, [result.touchpoints]);
+  const onAFlow = vulns.filter((vuln) => vuln.flow).length;
 
   return (
     <aside className="panel">
-      <section className="panel-section">
+      <section className="panel-lead">
         <p className="headline">
-          {result.stats.connectedEntries} of {result.stats.entries} entry points
+          {vulns.length} {vulns.length === 1 ? 'finding' : 'findings'}
+          {onAFlow > 0 && (
+            <span className="headline-count">
+              {' '}
+              · {onAFlow} on a flow
+            </span>
+          )}
         </p>
-        <p className="headline-sub">
-          have a path to somewhere data is stored, logged or sent out.{' '}
-          {result.stats.exitsDefault} exit{result.stats.exitsDefault === 1 ? '' : 's'} fire on a
-          default install, {result.stats.exitsOptIn} only if an operator turns them on,{' '}
-          {result.stats.exitsProduct} are the product talking to the world on purpose. The scanner
-          followed {result.fileCount} files and found {result.paths.length}{' '}
-          {result.paths.length === 1 ? 'route' : 'routes'} in total, of which{' '}
-          {result.stats.pathsCarryingValue} can point at a line handing a value over at every step.
+        {lead ? <p className="headline-sub">{lead}</p> : null}
+        <p className="scan-line">
+          {result.stats.connectedEntries} of {result.stats.entries} entries reach a sink ·{' '}
+          {result.rootName}
         </p>
       </section>
 
-      <section className="panel-section">
-        <h2>Touchpoints</h2>
+      <div className="vuln-list-wrap">
+        <VulnList vulns={vulns} selectedId={selectedVulnId} onSelect={onSelectVuln} />
+      </div>
+
+      <VulnDetail vuln={selected} onShowFlow={onShowFlow} />
+
+      <details className="about-scan">
+        <summary>About this scan</summary>
         <div className="tally">
           {KIND_ORDER.map((kind) => (
             <div key={kind} className="tally-row" title={KIND_MEANING[kind]}>
               <span className="swatch" style={{ background: KIND_COLOR[kind] }} />
               <span className="tally-label">{KIND_LABEL[kind]}</span>
-              <span className="tally-count">{counts[kind]}</span>
+              <span className="tally-count">{kindCount(result, kind)}</span>
             </div>
           ))}
         </div>
         <p className="muted">
-          {result.fileCount} files read in your browser, {result.skippedCount} skipped. Nothing was
-          uploaded.
+          {result.fileCount} files read in this tab, {result.skippedCount} skipped. Nothing was
+          uploaded. {result.stats.exitsDefault} exit{result.stats.exitsDefault === 1 ? '' : 's'} fire
+          on a default install, {result.stats.exitsOptIn} only if configured,{' '}
+          {result.stats.exitsProduct} are the product talking to the world.
         </p>
-      </section>
-
-      <section className="panel-section">
-        <h2>Findings</h2>
-        {result.findings.length === 0 && (
-          <p className="muted">Nothing detected. Either the project is unusually clean, or the
-          rules do not yet cover the way it is written.</p>
-        )}
-        <ul className="findings">
-          {result.findings.slice(0, 40).map((finding) => {
-            const touchpoint = finding.touchpointId ? byId.get(finding.touchpointId) : undefined;
-            const isSelected = selectedId === finding.touchpointId;
-
-            return (
-              <li key={finding.id}>
-                <button
-                  type="button"
-                  className={isSelected ? 'finding selected' : 'finding'}
-                  onClick={() => onSelect(isSelected ? null : finding.touchpointId ?? null)}
-                >
-                  <span className="finding-head">
-                    <span
-                      className="severity-dot"
-                      style={{ background: SEVERITY_COLOR[finding.severity] }}
-                    />
-                    <strong>{finding.title}</strong>
-                  </span>
-                  {touchpoint?.jurisdiction && (
-                    <span className="chip">{JURISDICTION_LABEL[touchpoint.jurisdiction]}</span>
-                  )}
-                  <p className="finding-detail">{finding.detail}</p>
-                  {isSelected && touchpoint && <Evidence touchpoint={touchpoint} />}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
-
-      <section className="panel-section">
-        <h2>Legend</h2>
         <dl className="legend">
           {KIND_ORDER.map((kind) => (
             <div key={kind}>
@@ -123,25 +79,14 @@ export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPa
             </div>
           ))}
         </dl>
-        {classes.length > 0 && (
-          <p className="muted">
-            Named in the code within three lines of a touchpoint:{' '}
-            {classes.map((cls) => DATA_CLASS_LABEL[cls]).join(', ')}. These are words the scanner
-            read next to a line, not a claim that such data travels anywhere.
-          </p>
-        )}
-      </section>
+      </details>
     </aside>
   );
 }
 
-function Evidence({ touchpoint }: { touchpoint: Touchpoint }) {
-  return (
-    <div className="evidence">
-      <code>
-        {touchpoint.file}:{touchpoint.line}
-      </code>
-      <pre>{touchpoint.snippet}</pre>
-    </div>
-  );
+function kindCount(result: ScanResult, kind: (typeof KIND_ORDER)[number]): number {
+  if (kind === 'entry') return result.stats.entries;
+  if (kind === 'store') return result.stats.stores;
+  if (kind === 'exit') return result.stats.exits;
+  return result.stats.logs;
 }

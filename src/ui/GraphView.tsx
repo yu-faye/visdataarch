@@ -23,6 +23,25 @@ function rankPaths(paths: DataPath[], byId: Map<string, Touchpoint>): DataPath[]
   return [...pool].sort((a, b) => comparePaths(a, b, byId)).slice(0, MAX_EDGES);
 }
 
+/**
+ * Ranked exits stay on the map. Finding-linked paths are added on top so a
+ * vuln can always light up its flow, including the log routes we otherwise hide.
+ */
+function pathsForGraph(result: ScanResult): DataPath[] {
+  const byId = new Map(result.touchpoints.map((tp) => [tp.id, tp]));
+  const ranked = rankPaths(result.paths, byId);
+  const keep = new Map(ranked.map((path) => [path.id, path]));
+  const pathById = new Map(result.paths.map((path) => [path.id, path]));
+
+  for (const finding of result.findings) {
+    if (!finding.pathId) continue;
+    const linked = pathById.get(finding.pathId);
+    if (linked) keep.set(linked.id, linked);
+  }
+
+  return [...keep.values()];
+}
+
 function shortLabel(touchpoint: Touchpoint): string {
   const file = touchpoint.file.split('/').pop() ?? touchpoint.file;
   return `${touchpoint.label}\n${file}:${touchpoint.line}`;
@@ -30,20 +49,33 @@ function shortLabel(touchpoint: Touchpoint): string {
 
 interface GraphViewProps {
   result: ScanResult;
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
+  focusPathId: string | null;
+  focusNodeIds: string[];
+  focusNonce: number;
+  focusLabel: string | null;
+  onSelectPath: (pathId: string) => void;
+  onSelectNode: (nodeId: string) => void;
 }
 
-export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
+export function GraphView({
+  result,
+  focusPathId,
+  focusNodeIds,
+  focusNonce,
+  focusLabel,
+  onSelectPath,
+  onSelectNode,
+}: GraphViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
 
   const elements = useMemo(() => {
     const byId = new Map(result.touchpoints.map((tp) => [tp.id, tp]));
-    const shown = rankPaths(result.paths, byId);
+    const shown = pathsForGraph(result);
+    const linked = new Set(
+      result.findings.map((finding) => finding.pathId).filter((id): id is string => Boolean(id)),
+    );
 
-    // Only touchpoints that take part in a drawn path. An unconnected entry is
-    // a fact for the panel, not a floating dot on the map.
     const used = new Set<string>();
     for (const path of shown) {
       used.add(path.entryId);
@@ -62,9 +94,6 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
         },
       }));
 
-    // A solid line means every hop could be shown handing a value over. A
-    // dashed one means only that the files are connected, which is a weaker
-    // thing to say and should not look the same on the map.
     const edges = shown.map((path) => {
       const hops = path.hops.length - 1;
       return {
@@ -75,6 +104,7 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
           label: hops === 0 ? 'same file' : `${hops} ${hops === 1 ? 'hop' : 'hops'}`,
           weight: path.carriesValue ? 2.5 : 1.2,
           unconfirmed: path.carriesValue ? 0 : 1,
+          vuln: linked.has(path.id) ? 1 : 0,
         },
       };
     });
@@ -107,7 +137,7 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
           },
         },
         {
-          selector: 'node:selected',
+          selector: 'node.focused',
           style: { 'border-width': 3, 'border-color': '#e8e8ea' },
         },
         {
@@ -133,39 +163,68 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
           style: { 'line-style': 'dashed', 'line-dash-pattern': [5, 4] },
         },
         {
-          selector: 'edge:selected',
-          style: { 'line-color': '#e8e8ea', 'target-arrow-color': '#e8e8ea' },
+          selector: 'edge[vuln = 1]',
+          style: { 'line-color': '#5c5c68', 'target-arrow-color': '#5c5c68' },
+        },
+        {
+          selector: 'edge.focused',
+          style: {
+            width: 3.5,
+            'line-color': '#e8e8ea',
+            'target-arrow-color': '#e8e8ea',
+            color: '#e8e8ea',
+          },
+        },
+        {
+          selector: '.dimmed',
+          style: { opacity: 0.22 },
         },
       ],
       layout: { name: 'dagre', rankDir: 'LR', nodeSep: 26, rankSep: 190 } as cytoscape.LayoutOptions,
       wheelSensitivity: 0.2,
     });
 
-    cy.on('tap', 'node, edge', (event) => onSelect(event.target.id()));
-    cy.on('tap', (event) => {
-      if (event.target === cy) onSelect(null);
-    });
+    cy.on('tap', 'edge', (event) => onSelectPath(event.target.id()));
+    cy.on('tap', 'node', (event) => onSelectNode(event.target.id()));
 
     cyRef.current = cy;
     return () => {
       cy.destroy();
       cyRef.current = null;
     };
-  }, [elements, onSelect]);
+  }, [elements, onSelectPath, onSelectNode]);
 
-  // Selection can also come from the findings panel, so mirror it onto the graph.
   useEffect(() => {
     const cy = cyRef.current;
     if (!cy) return;
-    cy.elements().unselect();
-    if (!selectedId) return;
 
-    const element = cy.getElementById(selectedId);
-    if (element.nonempty()) {
-      element.select();
-      cy.animate({ center: { eles: element }, duration: 200 });
+    cy.elements().removeClass('focused dimmed');
+    if (!focusPathId && focusNodeIds.length === 0) return;
+
+    cy.elements().addClass('dimmed');
+
+    const edge = focusPathId ? cy.getElementById(focusPathId) : cy.collection();
+    if (edge.nonempty()) {
+      edge.removeClass('dimmed').addClass('focused');
+      edge.connectedNodes().removeClass('dimmed').addClass('focused');
     }
-  }, [selectedId]);
+
+    for (const id of focusNodeIds) {
+      const node = cy.getElementById(id);
+      if (node.nonempty()) node.removeClass('dimmed').addClass('focused');
+    }
+
+    let target = edge;
+    if (target.empty()) {
+      target = cy.collection();
+      for (const id of focusNodeIds) {
+        target = target.union(cy.getElementById(id));
+      }
+    }
+    if (target.nonempty()) {
+      cy.animate({ center: { eles: target }, duration: 200 });
+    }
+  }, [focusPathId, focusNodeIds, focusNonce]);
 
   if (result.paths.length === 0) {
     return (
@@ -175,5 +234,10 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
     );
   }
 
-  return <div className="graph" ref={containerRef} />;
+  return (
+    <div className="graph-wrap">
+      <div className="graph" ref={containerRef} />
+      {focusLabel && <p className="graph-caption">{focusLabel}</p>}
+    </div>
+  );
 }
