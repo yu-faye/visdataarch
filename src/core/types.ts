@@ -44,6 +44,24 @@ export type DataClass =
 export type Severity = 'info' | 'warn' | 'critical';
 
 /**
+ * Why an exit is in the code.
+ *
+ * `default` — the destination is decided in source and nothing has to be
+ * configured for data to go there.
+ * `opt-in` — the code can send, but only after an operator sets a key, a
+ * hostname, or an analytics id.
+ * `product` — talking to the world is the job (a monitor, a notifier, a
+ * payment form), not a side channel.
+ */
+export type ExitRole = 'default' | 'opt-in' | 'product';
+
+export const EXIT_ROLE_ORDER: Record<ExitRole, number> = {
+  default: 0,
+  'opt-in': 1,
+  product: 2,
+};
+
+/**
  * What a single line of code does to data.
  *
  * `log` is split out from `exit` on purpose. Writing to stdout is the most
@@ -75,6 +93,15 @@ export interface Touchpoint {
   jurisdiction?: Jurisdiction;
   sovereignty?: SovereigntyLevel;
   dataClasses: DataClass[];
+  /**
+   * Why this exit exists, when the kind is `exit`.
+   *
+   * Three different facts used to share one colour and one sort key, which is
+   * why a monitor's job (fetch a URL, notify Slack) outranked the one place a
+   * photos app phones home. They are not the same claim and they must not
+   * compete as if they were.
+   */
+  role?: ExitRole;
   /** Single line, trimmed, truncated. Never include secrets. */
   snippet: string;
   ruleId: string;
@@ -197,6 +224,12 @@ export interface ScanStats {
   longestPath: number;
   /** Paths where every hop can point at a hand-off. The rest are reachability only. */
   pathsCarryingValue: number;
+  /** Exits whose destination is decided in source and needs no extra config. */
+  exitsDefault: number;
+  /** Exits that fire only after an operator turns them on. */
+  exitsOptIn: number;
+  /** Exits that are the product talking to the world on purpose. */
+  exitsProduct: number;
 }
 
 /**
@@ -247,6 +280,12 @@ export interface Rule {
    * of them pointing at a list of string literals.
    */
   declaration?: boolean;
+  /**
+   * When set, the scanner does not try to infer a role from the surrounding
+   * code. Payment and object storage are the product even when the key comes
+   * from the environment; a missing role means "look at the file".
+   */
+  role?: ExitRole;
   /** Any match counts as a hit. Must not carry /g, so they stay reusable. */
   patterns: RegExp[];
   /** Optional filter on file path; omit to check every scanned file. */

@@ -130,7 +130,12 @@ const STORE_RULES: Rule[] = [
     jurisdiction: 'self-hosted',
     sovereignty: 'sovereign',
     dataClasses: ['telemetry'],
-    patterns: [/\bclickhouse\.(insert|insertMany)\s*\(/, /\binsert\s+into\s+\w+\s*\(/i],
+    // Only a named client justifies naming the vendor. The generic form used to
+    // be here too, which meant immich's Postgres audit triggers were reported
+    // as ClickHouse writes: a specific, checkable, wrong claim derived from a
+    // pattern that says nothing about which database is on the other end. Plain
+    // SQL is already covered by store.sql.insert, where no vendor is asserted.
+    patterns: [/\bclickhouse\.(insert|insertMany)\s*\(/],
     severity: 'info',
     explain:
       'A second storage backend alongside the primary database. Two backends means two retention policies and two places to look when a deletion request arrives, and the second one is routinely forgotten.',
@@ -244,6 +249,7 @@ const EXIT_RULES: Rule[] = [
       /\bgot\s*\(/,
     ],
     severity: 'warn',
+    role: 'product',
     explain:
       'Data leaves the process here. Where it goes depends on the URL, which may be assembled at runtime and therefore invisible to a static scan.',
   },
@@ -379,6 +385,7 @@ const VENDOR_RULES: Rule[] = [
     sovereignty: 'delegated',
     dataClasses: ['payment', 'pii'],
     patterns: [/from\s+['"]@?stripe/, /js\.stripe\.com/],
+    role: 'product',
     severity: 'warn',
     explain:
       'Delegating card data to Stripe is usually the right call, since it removes PCI scope from your own systems. Note it anyway, because billing records are personal data.',
@@ -405,6 +412,7 @@ const VENDOR_RULES: Rule[] = [
     sovereignty: 'controlled',
     dataClasses: ['content'],
     patterns: [/from\s+['"]@aws-sdk\/client-s3['"]/, /s3[.-][a-z0-9-]+\.amazonaws\.com/],
+    role: 'product',
     severity: 'info',
     explain:
       'Object storage is controlled rather than sovereign: the region is yours to pick, the legal entity operating it is not.',

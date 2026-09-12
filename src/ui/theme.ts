@@ -1,5 +1,6 @@
 import type {
   DataClass,
+  ExitRole,
   Jurisdiction,
   Severity,
   SovereigntyLevel,
@@ -68,6 +69,12 @@ export const JURISDICTION_LABEL: Record<Jurisdiction, string> = {
   cn: 'China',
   global: 'Global CDN',
   unknown: 'Unverified',
+};
+
+export const EXIT_ROLE_LABEL: Record<ExitRole, string> = {
+  default: 'fires on a default install',
+  'opt-in': 'fires only if configured',
+  product: 'the product talking to the world',
 };
 
 export const SOVEREIGNTY_LABEL: Record<SovereigntyLevel, string> = {

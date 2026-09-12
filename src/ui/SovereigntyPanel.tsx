@@ -46,11 +46,13 @@ export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPa
           {result.stats.connectedEntries} of {result.stats.entries} entry points
         </p>
         <p className="headline-sub">
-          have a path to somewhere data is stored, logged or sent out. The scanner followed{' '}
-          {result.modules.length} files and found {result.paths.length}{' '}
+          have a path to somewhere data is stored, logged or sent out.{' '}
+          {result.stats.exitsDefault} exit{result.stats.exitsDefault === 1 ? '' : 's'} fire on a
+          default install, {result.stats.exitsOptIn} only if an operator turns them on,{' '}
+          {result.stats.exitsProduct} are the product talking to the world on purpose. The scanner
+          followed {result.modules.length} files and found {result.paths.length}{' '}
           {result.paths.length === 1 ? 'route' : 'routes'} in total, of which{' '}
           {result.stats.pathsCarryingValue} can point at a line handing a value over at every step.
-          The rest are drawn dashed: the files are connected, but the hand-off was not found.
         </p>
       </section>
 

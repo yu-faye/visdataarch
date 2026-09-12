@@ -1,9 +1,11 @@
 import { buildModuleIndex, extractImports, findPass } from './imports';
+import { comparePaths } from './rank';
 import { RULES } from './rules';
 import { SINK_KINDS } from './types';
 import type {
   DataClass,
   DataPath,
+  ExitRole,
   Finding,
   HopEvidence,
   Module,
@@ -44,6 +46,52 @@ const DATA_CLASS_HINTS: [RegExp, DataClass][] = [
   [/\b(body|content|document|message|note|comment|upload|file|recording|replay)\b/i, 'content'],
 ];
 
+/**
+ * Signals that this exit is behind a switch, not on by default.
+ *
+ * Read off the file as well as a window: the Google Analytics snippet in
+ * uptime-kuma interpolates an id on one line, and the `analyticsType` switch
+ * that decides whether to emit it at all lives a few functions away.
+ */
+const GATED_FILE = [
+  /\bprocess\.env\b/,
+  /\bimport\.meta\.env\b/,
+  /\benv\s*\(\s*['"][A-Z0-9_]+['"]/,
+  /\benv\.[A-Za-z]/,
+  /\bDISABLE_|_DISABLED\b/,
+  /\banalytics(Type|Id|Script)\b/,
+  /\bmeasurementId\b/,
+  // A CSP allowlist names a host so the browser may talk to it. That is not
+  // the same as talking to it, and on outline it produced two critical
+  // "reaches Google Analytics" findings from an IntegrationHelper that only
+  // returns hosts for the policy header.
+  /scriptSrc/i,
+  /connectSrc/i,
+  /\bcontent-security-policy\b/i,
+];
+
+const GATED_WINDOW = [/\$\{[^}]+\}/, /\bhostname\b/, /\bif\s*\(\s*!?\s*\w*(key|token|dsn|id|host)\b/i];
+
+function looksGated(text: string, extra: RegExp[] = []): boolean {
+  return [...GATED_FILE, ...extra].some((pattern) => pattern.test(text));
+}
+
+function inferRole(rule: Rule, file: ScannedFile, lines: string[], index: number): ExitRole | undefined {
+  if (rule.kind !== 'exit' || rule.declaration) return undefined;
+
+  const from = Math.max(0, index - 8);
+  const to = Math.min(lines.length, index + 16);
+  const window = lines.slice(from, to).join('\n');
+  if (looksGated(window, GATED_WINDOW) || looksGated(file.text)) return 'opt-in';
+  if (rule.role) return rule.role;
+  if (rule.destination) return 'default';
+
+  // A fetch whose neighbouring lines name an https host is closer to "this
+  // destination is decided in source" than to "the product talks to someone".
+  if (/['"`]https:\/\/(?!localhost|127\.)/i.test(window)) return 'default';
+  return 'product';
+}
+
 function inferDataClasses(lines: string[], index: number): DataClass[] {
   const from = Math.max(0, index - 3);
   const to = Math.min(lines.length, index + 4);
@@ -80,6 +128,7 @@ function matchRuleInFile(rule: Rule, file: ScannedFile, lines: string[]): Touchp
       jurisdiction: rule.jurisdiction,
       sovereignty: rule.sovereignty,
       dataClasses: classes.length > 0 ? classes : ['unknown'],
+      role: inferRole(rule, file, lines, i),
       snippet: line.trim().slice(0, MAX_SNIPPET_LENGTH),
       ruleId: rule.id,
     });
@@ -238,6 +287,9 @@ function buildStats(touchpoints: Touchpoint[], paths: DataPath[]): ScanStats {
     connectedEntries: connected.size,
     longestPath: paths.reduce((max, path) => Math.max(max, path.hops.length - 1), 0),
     pathsCarryingValue: paths.filter((path) => path.carriesValue).length,
+    exitsDefault: touchpoints.filter((tp) => tp.role === 'default').length,
+    exitsOptIn: touchpoints.filter((tp) => tp.role === 'opt-in').length,
+    exitsProduct: touchpoints.filter((tp) => tp.role === 'product').length,
   };
 }
 
@@ -258,9 +310,7 @@ function buildFindings(
   // A path whose every hop shows a hand-off deserves the slot over one that
   // only shows the files are connected, so it claims the rule pair first.
   const seenPair = new Set<string>();
-  const ordered = [...leaving].sort(
-    (a, b) => Number(b.carriesValue) - Number(a.carriesValue),
-  );
+  const ordered = [...leaving].sort((a, b) => comparePaths(a, b, byId));
 
   for (const path of ordered) {
     const entry = byId.get(path.entryId);
@@ -280,13 +330,19 @@ function buildFindings(
     const caveat = path.carriesValue
       ? ''
       : ' These files are connected, but the scanner could not find the line where a value is handed over, so treat the route as unconfirmed.';
+    const gate =
+      sink.role === 'opt-in'
+        ? ' This only fires after an operator turns it on.'
+        : sink.role === 'product'
+          ? ' Talking to the world is the job here, not a side channel.'
+          : '';
 
     findings.push({
       id: `finding:path:${path.id}`,
       ruleId: sink.ruleId,
-      severity: ruleById.get(sink.ruleId)?.severity ?? 'info',
-      title: `${entry.label} ${verb} ${sink.label}${where} in ${hops} ${hops === 1 ? 'hop' : 'hops'}`,
-      detail: explain + caveat,
+      severity: displaySeverity(ruleById.get(sink.ruleId)?.severity ?? 'info', sink.role),
+      title: `${entry.label} ${verb} ${sink.label}${where} in ${hops} ${hops === 1 ? 'hop' : 'hops'}${roleSuffix(sink.role)}`,
+      detail: explain + gate + caveat,
       touchpointId: sink.id,
       pathId: path.id,
     });
@@ -309,11 +365,12 @@ function buildFindings(
     if (rule.severity === 'info' && !rule.declaration) continue;
 
     const files = new Set(hits.map((hit) => hit.file)).size;
+    const role = hits[0].role;
     findings.push({
       id: `finding:rule:${ruleId}`,
       ruleId,
-      severity: rule.severity,
-      title: `${rule.label} in ${files} ${files === 1 ? 'file' : 'files'}`,
+      severity: displaySeverity(rule.severity, role),
+      title: `${rule.label} in ${files} ${files === 1 ? 'file' : 'files'}${roleSuffix(role)}`,
       detail: rule.explain,
       touchpointId: hits[0].id,
     });
@@ -321,6 +378,20 @@ function buildFindings(
 
   findings.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
   return findings;
+}
+
+function roleSuffix(role: ExitRole | undefined): string {
+  if (role === 'opt-in') return ' (opt-in)';
+  if (role === 'product') return ' (the product)';
+  return '';
+}
+
+/** An opt-in or product exit is not a critical finding about a default install. */
+function displaySeverity(severity: Severity, role: ExitRole | undefined): Severity {
+  if (role === 'opt-in' || role === 'product') {
+    if (severity === 'critical') return 'warn';
+  }
+  return severity;
 }
 
 /**

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import cytoscape from 'cytoscape';
 import dagre from 'cytoscape-dagre';
+import { comparePaths } from '../core/rank';
 import type { DataPath, ScanResult, Touchpoint } from '../core/types';
 import { KIND_COLOR } from './theme';
 
@@ -12,20 +13,9 @@ cytoscape.use(dagre);
  * over the network, not long chains that end at a log line.
  */
 const MAX_EDGES = 60;
-const SINK_RANK: Record<string, number> = { exit: 0, store: 1, log: 2, entry: 3 };
 
 function rankPaths(paths: DataPath[], byId: Map<string, Touchpoint>): DataPath[] {
-  return [...paths]
-    .sort((a, b) => {
-      // Evidence first. A route to the network that cannot show a hand-off is a
-      // worse lead than a route to a log line that can.
-      if (a.carriesValue !== b.carriesValue) return Number(b.carriesValue) - Number(a.carriesValue);
-      const ka = SINK_RANK[byId.get(a.sinkId)?.kind ?? 'entry'];
-      const kb = SINK_RANK[byId.get(b.sinkId)?.kind ?? 'entry'];
-      if (ka !== kb) return ka - kb;
-      return a.hops.length - b.hops.length;
-    })
-    .slice(0, MAX_EDGES);
+  return [...paths].sort((a, b) => comparePaths(a, b, byId)).slice(0, MAX_EDGES);
 }
 
 function shortLabel(touchpoint: Touchpoint): string {

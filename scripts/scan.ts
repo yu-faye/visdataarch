@@ -18,7 +18,8 @@
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { scan } from '../src/core/scanner.ts';
-import { isScannable, IGNORED_DIRS } from '../src/core/fileSource.ts';
+import { comparePaths } from '../src/core/rank.ts';
+import { isIgnoredPath, isScannable, IGNORED_DIRS } from '../src/core/fileSource.ts';
 import {
   buildBaseline,
   diffBaseline,
@@ -38,7 +39,9 @@ async function collect(root: string): Promise<{ files: ScannedFile[]; skipped: n
     for (const entry of entries) {
       if (entry.isDirectory()) {
         if (IGNORED_DIRS.has(entry.name)) continue;
-        await walk(join(dir, entry.name), `${prefix}${entry.name}/`);
+        const next = `${prefix}${entry.name}/`;
+        if (isIgnoredPath(next)) continue;
+        await walk(join(dir, entry.name), next);
         continue;
       }
       if (!entry.isFile()) continue;
@@ -47,7 +50,7 @@ async function collect(root: string): Promise<{ files: ScannedFile[]; skipped: n
       const full = join(dir, entry.name);
       const { size } = await stat(full);
 
-      if (!isScannable(path, size)) {
+      if (isIgnoredPath(path) || !isScannable(path, size)) {
         skipped += 1;
         continue;
       }
@@ -77,8 +80,9 @@ function printPath(path: DataPath, byId: Map<string, Touchpoint>): void {
   const sink = byId.get(path.sinkId) as Touchpoint;
   const where = sink.destination ? ` (${sink.destination})` : '';
   const confidence = path.carriesValue ? '' : '  [unconfirmed]';
+  const role = sink.role ? `  [${sink.role}]` : '';
 
-  console.log(`\n  ${entry.label} -> ${sink.label}${where}${confidence}`);
+  console.log(`\n  ${entry.label} -> ${sink.label}${where}${confidence}${role}`);
   console.log(`  ${entry.file}:${entry.line}  mentions [${path.entryClasses.join(', ') || '-'}]`);
 
   for (const hop of path.evidence) {
@@ -102,6 +106,9 @@ function summarise(target: string, result: ReturnType<typeof scan>): void {
   console.log(`  entry ${String(result.stats.entries).padStart(5)}`);
   console.log(`  store ${String(result.stats.stores).padStart(5)}`);
   console.log(`  exit  ${String(result.stats.exits).padStart(5)}`);
+  console.log(`        default ${String(result.stats.exitsDefault).padStart(5)}`);
+  console.log(`        opt-in  ${String(result.stats.exitsOptIn).padStart(5)}`);
+  console.log(`        product ${String(result.stats.exitsProduct).padStart(5)}`);
   console.log(`  log   ${String(result.stats.logs).padStart(5)}`);
 
   console.log('\nREACHABILITY');
@@ -128,18 +135,7 @@ function summarise(target: string, result: ReturnType<typeof scan>): void {
   // line, through a chain of React components that merely import each other, is
   // the weakest thing the graph can produce. Rank accordingly, or the noise
   // buries the finding.
-  const sinkRank: Record<string, number> = { exit: 0, store: 1, log: 2, entry: 3 };
-  const strongest = [...result.paths]
-    .sort((a, b) => {
-      // Evidence outranks everything. A route to the network that cannot show a
-      // hand-off is a worse lead than a route to a log line that can.
-      if (a.carriesValue !== b.carriesValue) return Number(b.carriesValue) - Number(a.carriesValue);
-      const ka = sinkRank[byId.get(a.sinkId)!.kind];
-      const kb = sinkRank[byId.get(b.sinkId)!.kind];
-      if (ka !== kb) return ka - kb;
-      return a.hops.length - b.hops.length;
-    })
-    .slice(0, 10);
+  const strongest = [...result.paths].sort((a, b) => comparePaths(a, b, byId)).slice(0, 10);
 
   console.log('\nSTRONGEST PATHS');
   for (const path of strongest) printPath(path, byId);

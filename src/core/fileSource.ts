@@ -30,6 +30,14 @@ export const IGNORED_DIRS = new Set([
   'tests',
   'test',
   'e2e',
+  // Documentation is not the product. On immich a drawio architecture diagram
+  // under docs/ produced fourteen Google Fonts exits, all of them the font
+  // used to render the picture.
+  'docs',
+  'documentation',
+  // Build and release tooling does not run on the adopter's server. On
+  // uptime-kuma the strongest paths were extra/release scripts.
+  'scripts',
 ]);
 
 const TEXT_EXTENSIONS = new Set([
@@ -42,9 +50,13 @@ const TEXT_EXTENSIONS = new Set([
 /** Beyond this a file is almost certainly generated or minified. */
 const MAX_FILE_BYTES = 512 * 1024;
 
-const IGNORED_FILENAMES = /^(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Cargo\.lock)$/;
+const IGNORED_FILENAMES =
+  /^(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Cargo\.lock|changelog(\.\w+)?)$/i;
 
 const TEST_FILENAME = /\.(test|spec)\.[cm]?[jt]sx?$/;
+const DIAGRAM_FILENAME = /\.drawio(\.xml)?$/i;
+/** Release helpers that sit outside a `scripts/` directory. */
+const IGNORED_PATH_PREFIX = /(^|\/)extra(\/|$)/;
 
 export interface FileCollection {
   files: ScannedFile[];
@@ -56,6 +68,7 @@ export function isScannable(path: string, size: number): boolean {
   const name = path.split('/').pop() ?? '';
   if (IGNORED_FILENAMES.test(name)) return false;
   if (TEST_FILENAME.test(name)) return false;
+  if (DIAGRAM_FILENAME.test(name)) return false;
   if (size > MAX_FILE_BYTES) return false;
 
   if (name.toLowerCase() === 'dockerfile') return true;
@@ -65,8 +78,9 @@ export function isScannable(path: string, size: number): boolean {
   return TEXT_EXTENSIONS.has(ext);
 }
 
-function isIgnoredPath(path: string): boolean {
-  return path.split('/').some((segment) => IGNORED_DIRS.has(segment));
+export function isIgnoredPath(path: string): boolean {
+  if (path.split('/').some((segment) => IGNORED_DIRS.has(segment))) return true;
+  return IGNORED_PATH_PREFIX.test(path);
 }
 
 /** Feature detection for the File System Access API. */

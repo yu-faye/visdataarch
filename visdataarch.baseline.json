@@ -3,32 +3,6 @@
   "root": "VisDataArch",
   "touchpoints": [
     {
-      "key": "scripts/scan.ts|entry.file.read|",
-      "file": "scripts/scan.ts",
-      "ruleId": "entry.file.read",
-      "kind": "entry",
-      "label": "file read",
-      "count": 2
-    },
-    {
-      "key": "scripts/scan.ts|log.console|stdout",
-      "file": "scripts/scan.ts",
-      "ruleId": "log.console",
-      "kind": "log",
-      "label": "console output",
-      "destination": "stdout",
-      "count": 12
-    },
-    {
-      "key": "scripts/scan.ts|store.file.write|Local filesystem",
-      "file": "scripts/scan.ts",
-      "ruleId": "store.file.write",
-      "kind": "store",
-      "label": "file write",
-      "destination": "Local filesystem",
-      "count": 1
-    },
-    {
       "key": "src/core/fixtures.ts|entry.http.body|",
       "file": "src/core/fixtures.ts",
       "ruleId": "entry.http.body",
@@ -114,6 +88,22 @@
       "count": 1
     },
     {
+      "key": "src/core/githubSource.ts|exit.network.generic|",
+      "file": "src/core/githubSource.ts",
+      "ruleId": "exit.network.generic",
+      "kind": "exit",
+      "label": "outbound request",
+      "count": 2
+    },
+    {
+      "key": "src/core/githubSource.ts|exit.url.literal|",
+      "file": "src/core/githubSource.ts",
+      "ruleId": "exit.url.literal",
+      "kind": "exit",
+      "label": "hardcoded external host",
+      "count": 3
+    },
+    {
       "key": "src/core/rules.ts|entry.file.read|",
       "file": "src/core/rules.ts",
       "ruleId": "entry.file.read",
@@ -139,18 +129,6 @@
     }
   ],
   "paths": [
-    {
-      "key": "scripts/scan.ts|entry.file.read>scripts/scan.ts|log.console",
-      "from": "file read in scripts/scan.ts",
-      "to": "console output (stdout) in scripts/scan.ts",
-      "hops": 0
-    },
-    {
-      "key": "scripts/scan.ts|entry.file.read>scripts/scan.ts|store.file.write",
-      "from": "file read in scripts/scan.ts",
-      "to": "file write (Local filesystem) in scripts/scan.ts",
-      "hops": 0
-    },
     {
       "key": "src/core/fixtures.ts|entry.http.body>src/core/fixtures.ts|exit.vendor.google-analytics",
       "from": "request body in src/core/fixtures.ts",
