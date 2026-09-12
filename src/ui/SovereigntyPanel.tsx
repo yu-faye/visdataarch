@@ -29,10 +29,15 @@ export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPa
     log: result.stats.logs,
   };
 
+  // Read off the touchpoints, not the paths. These are words the scanner saw
+  // near a line, which says something about that line and nothing about where
+  // the data goes afterwards.
   const classes = useMemo(() => {
-    const found = new Set(result.paths.flatMap((path) => path.dataClasses));
+    const found = new Set(
+      result.touchpoints.flatMap((tp) => tp.dataClasses.filter((cls) => cls !== 'unknown')),
+    );
     return [...found];
-  }, [result.paths]);
+  }, [result.touchpoints]);
 
   return (
     <aside className="panel">
@@ -43,7 +48,9 @@ export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPa
         <p className="headline-sub">
           have a path to somewhere data is stored, logged or sent out. The scanner followed{' '}
           {result.modules.length} files and found {result.paths.length}{' '}
-          {result.paths.length === 1 ? 'route' : 'routes'} in total.
+          {result.paths.length === 1 ? 'route' : 'routes'} in total, of which{' '}
+          {result.stats.pathsCarryingValue} can point at a line handing a value over at every step.
+          The rest are drawn dashed: the files are connected, but the hand-off was not found.
         </p>
       </section>
 
@@ -116,8 +123,9 @@ export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPa
         </dl>
         {classes.length > 0 && (
           <p className="muted">
-            Data classes inferred from the code around each touchpoint:{' '}
-            {classes.map((cls) => DATA_CLASS_LABEL[cls]).join(', ')}.
+            Named in the code within three lines of a touchpoint:{' '}
+            {classes.map((cls) => DATA_CLASS_LABEL[cls]).join(', ')}. These are words the scanner
+            read next to a line, not a claim that such data travels anywhere.
           </p>
         )}
       </section>

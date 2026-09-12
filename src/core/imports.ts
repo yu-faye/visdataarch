@@ -1,4 +1,4 @@
-import type { ScannedFile } from './types';
+import type { FlowEdge, ScannedFile } from './types';
 
 /**
  * Import graph construction.
@@ -309,7 +309,7 @@ function isInvoked(name: string, text: string): boolean {
 
 export interface ExtractedImports {
   imports: string[];
-  flows: string[];
+  flows: FlowEdge[];
 }
 
 /**
@@ -321,12 +321,17 @@ export interface ExtractedImports {
  */
 export function extractImports(file: ScannedFile, index: ModuleIndex): ExtractedImports {
   const imports = new Set<string>();
-  const flows = new Set<string>();
+  const flows = new Map<string, Set<string>>();
 
-  const add = (id: string | null, carriesData: boolean) => {
+  /** `carrying` holds the used bindings, so an empty list means no flow edge. */
+  const add = (id: string | null, carrying: string[]) => {
     if (!id || id === file.path) return;
     imports.add(id);
-    if (carriesData) flows.add(id);
+    if (carrying.length === 0) return;
+
+    const existing = flows.get(id);
+    if (existing) for (const name of carrying) existing.add(name);
+    else flows.set(id, new Set(carrying));
   };
 
   IMPORT_STATEMENT.lastIndex = 0;
@@ -342,8 +347,7 @@ export function extractImports(file: ScannedFile, index: ModuleIndex): Extracted
     // A default or namespace import gives no name to chase through a barrel, so
     // the module itself is the best available answer.
     if (!block || !isBarrel) {
-      const used = boundNames(clause).some((name) => isInvoked(name, file.text));
-      add(target, used);
+      add(target, boundNames(clause).filter((name) => isInvoked(name, file.text)));
       continue;
     }
 
@@ -351,12 +355,12 @@ export function extractImports(file: ScannedFile, index: ModuleIndex): Extracted
     for (const name of exposedNames(block[1])) {
       const owner = resolveThroughBarrel(target, name, index);
       if (owner) {
-        add(owner, isInvoked(name, file.text));
+        add(owner, isInvoked(name, file.text) ? [name] : []);
         resolvedAny = true;
       }
     }
     if (!resolvedAny) {
-      add(target, boundNames(clause).some((name) => isInvoked(name, file.text)));
+      add(target, boundNames(clause).filter((name) => isInvoked(name, file.text)));
     }
   }
 
@@ -365,9 +369,79 @@ export function extractImports(file: ScannedFile, index: ModuleIndex): Extracted
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(file.text)) !== null) {
-      add(resolveSpecifier(match[1], file.path, index.known, index.aliases), false);
+      add(resolveSpecifier(match[1], file.path, index.known, index.aliases), []);
     }
   }
 
-  return { imports: [...imports], flows: [...flows] };
+  return {
+    imports: [...imports],
+    flows: [...flows].map(([to, symbols]) => ({ to, symbols: [...symbols] })),
+  };
+}
+
+// ------------------------------------------------------------------ evidence
+
+/** How far a call can be wrapped over following lines before we stop looking. */
+const CALL_WINDOW = 3;
+const MAX_EVIDENCE_SNIPPET = 160;
+
+export interface PassSite {
+  symbol: string;
+  line: number;
+  snippet: string;
+}
+
+/**
+ * A call that takes something with it. `saveEvent(payload)` qualifies;
+ * `getConfig()` does not, because a call with no argument hands over nothing.
+ * The member form covers clients reached through an object, as in
+ * `prisma.client.websiteEvent.create({ data })`.
+ */
+const argumentPattern = (name: string) =>
+  new RegExp(`\\b${name}\\b[\\w.]*\\s*\\(\\s*[^)\\s]`);
+
+/**
+ * A call whose result is kept. This is the shape that matters when the data
+ * travels against the import: a route handler imports the request parser, so
+ * the payload arrives by being returned, not by being passed in.
+ */
+const returnPattern = (name: string) =>
+  new RegExp(`(?:[=:]\\s*|\\breturn\\s+)(?:await\\s+)?\\b${name}\\s*\\(`);
+
+/**
+ * The first place one of `symbols` is seen handing a value over, or null.
+ *
+ * Matching runs over a short window rather than a single line, because a
+ * formatter puts the arguments of any call worth looking at on the lines below
+ * it. The name itself still has to appear on the reported line, so the line
+ * number points at the call and not at whatever follows it.
+ */
+export function findPass(
+  text: string,
+  symbols: string[],
+  direction: 'argument' | 'return',
+): PassSite | null {
+  if (symbols.length === 0) return null;
+
+  const lines = text.split('\n');
+  const build = direction === 'argument' ? argumentPattern : returnPattern;
+  const patterns = symbols.map((symbol) => ({ symbol, pattern: build(symbol) }));
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const window = lines.slice(i, i + CALL_WINDOW).join('\n');
+
+    for (const { symbol, pattern } of patterns) {
+      const match = pattern.exec(window);
+      // The match may run into the following lines, since that is where a
+      // formatter puts the arguments, but it has to begin on the line being
+      // reported. Otherwise an import statement mentioning the symbol takes
+      // credit for a call underneath it, and the line number stops being
+      // something the reader can check.
+      if (!match || match.index >= lines[i].length) continue;
+
+      return { symbol, line: i + 1, snippet: lines[i].trim().slice(0, MAX_EVIDENCE_SNIPPET) };
+    }
+  }
+
+  return null;
 }

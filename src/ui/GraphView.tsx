@@ -17,6 +17,9 @@ const SINK_RANK: Record<string, number> = { exit: 0, store: 1, log: 2, entry: 3 
 function rankPaths(paths: DataPath[], byId: Map<string, Touchpoint>): DataPath[] {
   return [...paths]
     .sort((a, b) => {
+      // Evidence first. A route to the network that cannot show a hand-off is a
+      // worse lead than a route to a log line that can.
+      if (a.carriesValue !== b.carriesValue) return Number(b.carriesValue) - Number(a.carriesValue);
       const ka = SINK_RANK[byId.get(a.sinkId)?.kind ?? 'entry'];
       const kb = SINK_RANK[byId.get(b.sinkId)?.kind ?? 'entry'];
       if (ka !== kb) return ka - kb;
@@ -64,6 +67,9 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
         },
       }));
 
+    // A solid line means every hop could be shown handing a value over. A
+    // dashed one means only that the files are connected, which is a weaker
+    // thing to say and should not look the same on the map.
     const edges = shown.map((path) => {
       const hops = path.hops.length - 1;
       return {
@@ -72,7 +78,8 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
           source: path.entryId,
           target: path.sinkId,
           label: hops === 0 ? 'same file' : `${hops} ${hops === 1 ? 'hop' : 'hops'}`,
-          weight: path.dataClasses.length > 0 ? 2.5 : 1.2,
+          weight: path.carriesValue ? 2.5 : 1.2,
+          unconfirmed: path.carriesValue ? 0 : 1,
         },
       };
     });
@@ -125,6 +132,10 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
             'text-background-opacity': 1,
             'text-background-padding': '2px',
           },
+        },
+        {
+          selector: 'edge[unconfirmed = 1]',
+          style: { 'line-style': 'dashed', 'line-dash-pattern': [5, 4] },
         },
         {
           selector: 'edge:selected',

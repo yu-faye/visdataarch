@@ -246,6 +246,7 @@ const EXIT_RULES: Rule[] = [
     jurisdiction: 'unknown',
     sovereignty: 'delegated',
     dataClasses: ['unknown'],
+    declaration: true,
     // Destinations are usually declared far from the call that uses them. In
     // umami the telemetry pixel and the DuckDuckGo favicon endpoint both sit in
     // a constants file, so matching only at the call site finds neither, and

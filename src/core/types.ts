@@ -80,6 +80,20 @@ export interface Touchpoint {
   ruleId: string;
 }
 
+/**
+ * An import the data could travel along, and the bindings that would carry it.
+ *
+ * The symbols matter as much as the target. Knowing only that A imports B says
+ * nothing about whether anything is handed over; knowing that A imported
+ * `saveEvent` from B lets us go and look at how `saveEvent` is called.
+ */
+export interface FlowEdge {
+  /** Module id on the other end. */
+  to: string;
+  /** Local binding names this file imported from it and then used. */
+  symbols: string[];
+}
+
 /** One source file, plus the edges it has to other source files. */
 export interface Module {
   /** Path relative to the scanned root. Doubles as the display id. */
@@ -94,9 +108,35 @@ export interface Module {
    * not evidence that data travels: a component importing another component is
    * the most common edge in a front end and carries nothing.
    */
-  flows: string[];
+  flows: FlowEdge[];
   /** Touchpoint ids found in this file. */
   touchpoints: string[];
+}
+
+/** How a value crosses one hop of a path, if it crosses at all. */
+export type PassKind =
+  | 'argument' // the caller hands something in: saveEvent(payload)
+  | 'return' // the caller keeps what comes back: const { body } = await parse(req)
+  | 'none'; // the two files are connected, but nothing observable moves
+
+/**
+ * Why we believe a value crosses one hop, with the line to check it against.
+ *
+ * Reachability alone never justified the arrows this tool draws. Two files
+ * being connected is not the same as data passing between them, and every hop
+ * that cannot point at a hand-off is a hop where the claim runs out.
+ */
+export interface HopEvidence {
+  from: string;
+  to: string;
+  kind: PassKind;
+  /** The binding that carries the value. */
+  symbol?: string;
+  /** Where the hand-off is visible. Not always the `from` module: on a return
+   * the call site lives in the file receiving the data. */
+  file?: string;
+  line?: number;
+  snippet?: string;
 }
 
 /**
@@ -105,6 +145,14 @@ export interface Module {
  * `hops` holds every module on the way, so the UI can collapse the middle into
  * a count and still offer the detail on demand. In a real codebase most files
  * are plumbing, and drawing them all produces a hairball nobody can read.
+ *
+ * There is deliberately no `dataClasses` here. It used to be the union of the
+ * classes seen at each end, which quietly turned two independent observations
+ * into a claim about the middle: an entry whose neighbouring lines mention
+ * `user_agent` and a sink whose neighbouring lines mention `session_id` would
+ * produce a path labelled as carrying both, with nothing supporting either. The
+ * observations are kept apart, and what happens between them is answered by
+ * `evidence` instead.
  */
 export interface DataPath {
   id: string;
@@ -114,7 +162,17 @@ export interface DataPath {
   sinkId: string;
   /** Ordered module ids, entry module first, sink module last. */
   hops: string[];
-  dataClasses: DataClass[];
+  /** Classes named around the entry line. True of that line, not of the path. */
+  entryClasses: DataClass[];
+  /** Classes named around the sink line. Likewise. */
+  sinkClasses: DataClass[];
+  /** One per hop, in order. Empty when the entry and the sink share a file. */
+  evidence: HopEvidence[];
+  /**
+   * Every hop hands a value across. When false the path is reachability only:
+   * the files are connected, but the scanner cannot show data making the trip.
+   */
+  carriesValue: boolean;
 }
 
 export interface Finding {
@@ -137,6 +195,8 @@ export interface ScanStats {
   connectedEntries: number;
   /** Hop count of the longest path found. */
   longestPath: number;
+  /** Paths where every hop can point at a hand-off. The rest are reachability only. */
+  pathsCarryingValue: number;
 }
 
 /**
@@ -177,6 +237,16 @@ export interface Rule {
   jurisdiction?: Jurisdiction;
   sovereignty?: SovereigntyLevel;
   dataClasses: DataClass[];
+  /**
+   * The rule records a fact about the file rather than an operation on data.
+   *
+   * A hardcoded URL is the clearest case: the string names a destination, but
+   * the line does nothing, so data cannot arrive there. Left as a sink it
+   * terminated paths at whichever constants file happened to hold it, which on
+   * umami produced the ten highest-ranked routes in the whole scan, every one
+   * of them pointing at a list of string literals.
+   */
+  declaration?: boolean;
   /** Any match counts as a hit. Must not carry /g, so they stay reusable. */
   patterns: RegExp[];
   /** Optional filter on file path; omit to check every scanned file. */

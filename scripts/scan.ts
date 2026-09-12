@@ -12,7 +12,7 @@ import { readdir, readFile, stat } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { scan } from '../src/core/scanner.ts';
 import { isScannable, IGNORED_DIRS } from '../src/core/fileSource.ts';
-import type { ScannedFile, Touchpoint } from '../src/core/types.ts';
+import type { DataPath, ScannedFile, Touchpoint } from '../src/core/types.ts';
 
 async function collect(root: string): Promise<{ files: ScannedFile[]; skipped: number }> {
   const files: ScannedFile[] = [];
@@ -50,6 +50,34 @@ function bar(count: number, max: number, width = 28): string {
   return '#'.repeat(Math.max(1, Math.round((count / max) * width)));
 }
 
+/**
+ * Prints a path with the hand-off behind every hop.
+ *
+ * The hop list on its own only ever said the files were connected. Printing the
+ * line where a value actually changes hands is the difference between a claim
+ * and a claim you can check, and it is the fastest way to catch the scanner
+ * inventing a route.
+ */
+function printPath(path: DataPath, byId: Map<string, Touchpoint>): void {
+  const entry = byId.get(path.entryId) as Touchpoint;
+  const sink = byId.get(path.sinkId) as Touchpoint;
+  const where = sink.destination ? ` (${sink.destination})` : '';
+  const confidence = path.carriesValue ? '' : '  [unconfirmed]';
+
+  console.log(`\n  ${entry.label} -> ${sink.label}${where}${confidence}`);
+  console.log(`  ${entry.file}:${entry.line}  mentions [${path.entryClasses.join(', ') || '-'}]`);
+
+  for (const hop of path.evidence) {
+    if (hop.kind === 'none') {
+      console.log(`    ?  ${hop.to}  no hand-off found`);
+    } else {
+      console.log(`    ${hop.kind === 'argument' ? '->' : '<-'} ${hop.to}  ${hop.symbol} at ${hop.file}:${hop.line}`);
+    }
+  }
+
+  console.log(`  ${sink.file}:${sink.line}  mentions [${path.sinkClasses.join(', ') || '-'}]`);
+}
+
 function summarise(target: string, result: ReturnType<typeof scan>): void {
   const byId = new Map(result.touchpoints.map((tp) => [tp.id, tp]));
 
@@ -68,6 +96,9 @@ function summarise(target: string, result: ReturnType<typeof scan>): void {
     `  ${result.stats.connectedEntries} of ${result.stats.entries} entry points reach at least one sink`,
   );
   console.log(`  longest path: ${result.stats.longestPath} hops`);
+  console.log(
+    `  ${result.stats.pathsCarryingValue} of ${result.paths.length} show a hand-off at every hop`,
+  );
 
   const perRule = new Map<string, number>();
   for (const tp of result.touchpoints) perRule.set(tp.ruleId, (perRule.get(tp.ruleId) ?? 0) + 1);
@@ -86,6 +117,9 @@ function summarise(target: string, result: ReturnType<typeof scan>): void {
   const sinkRank: Record<string, number> = { exit: 0, store: 1, log: 2, entry: 3 };
   const strongest = [...result.paths]
     .sort((a, b) => {
+      // Evidence outranks everything. A route to the network that cannot show a
+      // hand-off is a worse lead than a route to a log line that can.
+      if (a.carriesValue !== b.carriesValue) return Number(b.carriesValue) - Number(a.carriesValue);
       const ka = sinkRank[byId.get(a.sinkId)!.kind];
       const kb = sinkRank[byId.get(b.sinkId)!.kind];
       if (ka !== kb) return ka - kb;
@@ -94,17 +128,7 @@ function summarise(target: string, result: ReturnType<typeof scan>): void {
     .slice(0, 10);
 
   console.log('\nSTRONGEST PATHS');
-  for (const path of strongest) {
-    const entry = byId.get(path.entryId) as Touchpoint;
-    const sink = byId.get(path.sinkId) as Touchpoint;
-    const classes = path.dataClasses.length > 0 ? `  [${path.dataClasses.join(', ')}]` : '';
-    console.log(
-      `\n  ${entry.label} -> ${sink.label}${sink.destination ? ` (${sink.destination})` : ''}${classes}`,
-    );
-    console.log(`  ${entry.file}:${entry.line}`);
-    for (const hop of path.hops.slice(1, -1)) console.log(`    via ${hop}`);
-    console.log(`  ${sink.file}:${sink.line}`);
-  }
+  for (const path of strongest) printPath(path, byId);
 
   const distribution = new Map<number, number>();
   for (const path of result.paths) {
@@ -173,14 +197,7 @@ if (pathIndex !== -1) {
   });
 
   console.log(`\n${hits.length} paths touching "${needle}"`);
-  for (const path of hits.slice(0, 20)) {
-    const entry = byId.get(path.entryId)!;
-    const sink = byId.get(path.sinkId)!;
-    console.log(`\n  ${entry.label} -> ${sink.label}  [${path.dataClasses.join(', ') || 'unknown'}]`);
-    console.log(`  ${entry.file}:${entry.line}`);
-    for (const hop of path.hops.slice(1, -1)) console.log(`    via ${hop}`);
-    console.log(`  ${sink.file}:${sink.line}`);
-  }
+  for (const path of hits.slice(0, 20)) printPath(path, byId);
 } else if (debugIndex !== -1) inspect(result, args[debugIndex + 1] ?? '');
 else if (wantsJson) console.log(JSON.stringify(result, null, 2));
 else summarise(target, result);
