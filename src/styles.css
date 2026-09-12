@@ -139,6 +139,23 @@ button.primary:disabled {
   font-size: 12px;
 }
 
+/* ---------------------------------------------------------------- headline */
+
+.headline-lead {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.025em;
+  font-variant-numeric: tabular-nums;
+}
+
+.headline-rest {
+  margin: 6px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+
 /* ------------------------------------------------------------------- tally */
 
 .tally-row {

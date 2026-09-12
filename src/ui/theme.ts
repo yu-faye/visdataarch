@@ -43,6 +43,17 @@ export const JURISDICTION_LABEL: Record<Jurisdiction, string> = {
   unknown: 'Unverified',
 };
 
+/** Completes a count in the headline, e.g. "4 in the United States". */
+export const JURISDICTION_PHRASE: Record<Jurisdiction, string> = {
+  local: "on the user's device",
+  'self-hosted': 'on infrastructure you run',
+  eu: 'in the European Union',
+  us: 'in the United States',
+  cn: 'in China',
+  global: 'on global CDNs',
+  unknown: 'in an unverified location',
+};
+
 export const DATA_CLASS_LABEL: Record<DataClass, string> = {
   pii: 'personal data',
   auth: 'credentials',

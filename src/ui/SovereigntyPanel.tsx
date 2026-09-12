@@ -8,6 +8,7 @@ import {
   SOVEREIGNTY_MEANING,
   SOVEREIGNTY_ORDER,
 } from './theme';
+import { headline, headlineParts } from './headline';
 
 interface SovereigntyPanelProps {
   result: ScanResult;
@@ -17,9 +18,15 @@ interface SovereigntyPanelProps {
 
 export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPanelProps) {
   const nodeById = new Map(result.nodes.map((node) => [node.id, node]));
+  const summary = headlineParts(headline(result));
 
   return (
     <aside className="panel">
+      <section className="panel-section headline">
+        <p className="headline-lead">{summary.lead}</p>
+        <p className="headline-rest">{summary.rest}</p>
+      </section>
+
       <section className="panel-section">
         <h2>Where it stands</h2>
         <div className="tally">
