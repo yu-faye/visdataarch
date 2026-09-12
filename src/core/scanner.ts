@@ -216,6 +216,18 @@ function reachableSinks(
   return found;
 }
 
+/** The first hit of each rule in a file: what the file does, once per kind. */
+function distinctByRule(sinks: Touchpoint[] | undefined): Touchpoint[] {
+  if (!sinks) return [];
+
+  const seen = new Set<string>();
+  return sinks.filter((sink) => {
+    if (seen.has(sink.ruleId)) return false;
+    seen.add(sink.ruleId);
+    return true;
+  });
+}
+
 function buildStats(touchpoints: Touchpoint[], paths: DataPath[]): ScanStats {
   const connected = new Set(paths.map((path) => path.entryId));
   return {
@@ -382,9 +394,15 @@ export function scan(files: ScannedFile[], rootName: string, skippedCount = 0): 
       .slice(0, MAX_PATHS_PER_ENTRY);
 
     for (const [sinkModuleId, hops] of ranked) {
-      const sink = sinksByModule.get(sinkModuleId)?.[0];
-      if (!sink) continue;
-
+      // One path per distinct thing the file does, rather than per line and not
+      // merely one for the whole file. Taking only the first sink meant a file
+      // that both logs and writes to the database could only ever show one of
+      // them, and which one it showed flipped whenever an unrelated rule
+      // started matching, so the recorded boundary churned without the boundary
+      // having moved. Collapsing by rule keeps five console.log lines as one
+      // route while keeping the database write visible beside them.
+      // The chain is a property of the two modules, so it is worked out once
+      // and shared by every sink in the file at the far end.
       const evidence: HopEvidence[] = [];
       for (let i = 0; i + 1 < hops.length; i += 1) {
         const key = `${hops[i]}->${hops[i + 1]}`;
@@ -396,19 +414,23 @@ export function scan(files: ScannedFile[], rootName: string, skippedCount = 0): 
         evidence.push(hop);
       }
 
-      paths.push({
-        id: `path:${entry.id}->${sink.id}`,
-        entryId: entry.id,
-        sinkId: sink.id,
-        hops,
-        entryClasses: entry.dataClasses.filter((cls) => cls !== 'unknown'),
-        sinkClasses: sink.dataClasses.filter((cls) => cls !== 'unknown'),
-        evidence,
-        // An empty list means the entry and the sink share a file, where the
-        // data never has to cross anything. That is the strongest case, not the
-        // weakest, so the vacuous `every` is the answer we want.
-        carriesValue: evidence.every((hop) => hop.kind !== 'none'),
-      });
+      // An empty list means the entry and the sink share a file, where the data
+      // never has to cross anything. That is the strongest case, not the
+      // weakest, so the vacuous `every` is the answer we want.
+      const carriesValue = evidence.every((hop) => hop.kind !== 'none');
+
+      for (const sink of distinctByRule(sinksByModule.get(sinkModuleId))) {
+        paths.push({
+          id: `path:${entry.id}->${sink.id}`,
+          entryId: entry.id,
+          sinkId: sink.id,
+          hops,
+          entryClasses: entry.dataClasses.filter((cls) => cls !== 'unknown'),
+          sinkClasses: sink.dataClasses.filter((cls) => cls !== 'unknown'),
+          evidence,
+          carriesValue,
+        });
+      }
     }
   }
 

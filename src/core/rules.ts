@@ -169,7 +169,15 @@ const STORE_RULES: Rule[] = [
     jurisdiction: 'self-hosted',
     sovereignty: 'sovereign',
     dataClasses: ['content'],
-    patterns: [/\bfs\.(promises\.)?writeFile(Sync)?\s*\(/, /\bcreateWriteStream\s*\(/],
+    // The bare form is the one a modern codebase writes, since `node:fs` is
+    // imported by name. The lookbehind keeps the two patterns from arguing:
+    // only a call with nothing in front of it is matched here, and anything
+    // reached through an object is left to the first pattern.
+    patterns: [
+      /\bfs\.(promises\.)?(writeFile|appendFile)(Sync)?\s*\(/,
+      /(?<![\w.])(writeFile|appendFile)(Sync)?\s*\(/,
+      /\bcreateWriteStream\s*\(/,
+    ],
     severity: 'info',
     explain: 'Data is written to disk, where it outlives the process and may not be covered by database backups or deletion routines.',
   },

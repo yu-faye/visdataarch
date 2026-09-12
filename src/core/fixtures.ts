@@ -98,12 +98,36 @@ const FAKE_PROJECT: ScannedFile[] = [
     text: [
       "import { parseRequest } from '@/lib/request';",
       "import { summarise } from '@/lib/ai';",
+      "import { flushQueue } from '@/lib/buffer';",
       '',
       'export async function POST(request: Request) {',
       '  const { body } = await parseRequest(request);',
       '  const result = await summarise(body.patientNote);',
       '  console.log("summarised", body.email);',
+      '  await flushQueue();',
       '  return Response.json(result);',
+      '}',
+    ].join('\n'),
+  },
+  {
+    // The case the scanner cannot settle, and therefore must not overstate.
+    //
+    // `flushQueue()` is called with nothing and its result is thrown away, so
+    // there is no hand-off to point at, yet it plainly writes to disk and the
+    // route plainly handles a request body. Whether the two are connected
+    // depends on module-level state, which reading text cannot establish.
+    //
+    // The path is kept and drawn dashed. Dropping it would hide a real risk;
+    // drawing it like the others would claim something unearned.
+    path: 'src/lib/buffer.ts',
+    text: [
+      "import { writeFileSync } from 'node:fs';",
+      '',
+      'const pending: string[] = [];',
+      '',
+      'export function flushQueue() {',
+      '  writeFileSync("/var/log/pending.json", JSON.stringify(pending));',
+      '  pending.length = 0;',
       '}',
     ].join('\n'),
   },

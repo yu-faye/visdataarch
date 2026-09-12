@@ -20,6 +20,15 @@
       "count": 12
     },
     {
+      "key": "scripts/scan.ts|store.file.write|Local filesystem",
+      "file": "scripts/scan.ts",
+      "ruleId": "store.file.write",
+      "kind": "store",
+      "label": "file write",
+      "destination": "Local filesystem",
+      "count": 1
+    },
+    {
       "key": "src/core/fixtures.ts|entry.http.body|",
       "file": "src/core/fixtures.ts",
       "ruleId": "entry.http.body",
@@ -96,6 +105,15 @@
       "count": 1
     },
     {
+      "key": "src/core/fixtures.ts|store.file.write|Local filesystem",
+      "file": "src/core/fixtures.ts",
+      "ruleId": "store.file.write",
+      "kind": "store",
+      "label": "file write",
+      "destination": "Local filesystem",
+      "count": 1
+    },
+    {
       "key": "src/core/rules.ts|entry.file.read|",
       "file": "src/core/rules.ts",
       "ruleId": "entry.file.read",
@@ -128,9 +146,57 @@
       "hops": 0
     },
     {
+      "key": "scripts/scan.ts|entry.file.read>scripts/scan.ts|store.file.write",
+      "from": "file read in scripts/scan.ts",
+      "to": "file write (Local filesystem) in scripts/scan.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.body>src/core/fixtures.ts|exit.vendor.google-analytics",
+      "from": "request body in src/core/fixtures.ts",
+      "to": "analytics beacon (Google Analytics) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.body>src/core/fixtures.ts|exit.vendor.google-fonts",
+      "from": "request body in src/core/fixtures.ts",
+      "to": "visitor IP on page load (Google Fonts) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.body>src/core/fixtures.ts|exit.vendor.openai",
+      "from": "request body in src/core/fixtures.ts",
+      "to": "prompt (OpenAI) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
       "key": "src/core/fixtures.ts|entry.http.body>src/core/fixtures.ts|log.console",
       "from": "request body in src/core/fixtures.ts",
       "to": "console output (stdout) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.body>src/core/fixtures.ts|store.file.write",
+      "from": "request body in src/core/fixtures.ts",
+      "to": "file write (Local filesystem) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.headers>src/core/fixtures.ts|exit.vendor.google-analytics",
+      "from": "request headers in src/core/fixtures.ts",
+      "to": "analytics beacon (Google Analytics) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.headers>src/core/fixtures.ts|exit.vendor.google-fonts",
+      "from": "request headers in src/core/fixtures.ts",
+      "to": "visitor IP on page load (Google Fonts) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.headers>src/core/fixtures.ts|exit.vendor.openai",
+      "from": "request headers in src/core/fixtures.ts",
+      "to": "prompt (OpenAI) in src/core/fixtures.ts",
       "hops": 0
     },
     {
@@ -140,15 +206,69 @@
       "hops": 0
     },
     {
+      "key": "src/core/fixtures.ts|entry.http.headers>src/core/fixtures.ts|store.file.write",
+      "from": "request headers in src/core/fixtures.ts",
+      "to": "file write (Local filesystem) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.query>src/core/fixtures.ts|exit.vendor.google-analytics",
+      "from": "query parameters in src/core/fixtures.ts",
+      "to": "analytics beacon (Google Analytics) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.query>src/core/fixtures.ts|exit.vendor.google-fonts",
+      "from": "query parameters in src/core/fixtures.ts",
+      "to": "visitor IP on page load (Google Fonts) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.query>src/core/fixtures.ts|exit.vendor.openai",
+      "from": "query parameters in src/core/fixtures.ts",
+      "to": "prompt (OpenAI) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
       "key": "src/core/fixtures.ts|entry.http.query>src/core/fixtures.ts|log.console",
       "from": "query parameters in src/core/fixtures.ts",
       "to": "console output (stdout) in src/core/fixtures.ts",
       "hops": 0
     },
     {
+      "key": "src/core/fixtures.ts|entry.http.query>src/core/fixtures.ts|store.file.write",
+      "from": "query parameters in src/core/fixtures.ts",
+      "to": "file write (Local filesystem) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.secret.env>src/core/fixtures.ts|exit.vendor.google-analytics",
+      "from": "secret from environment in src/core/fixtures.ts",
+      "to": "analytics beacon (Google Analytics) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.secret.env>src/core/fixtures.ts|exit.vendor.google-fonts",
+      "from": "secret from environment in src/core/fixtures.ts",
+      "to": "visitor IP on page load (Google Fonts) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.secret.env>src/core/fixtures.ts|exit.vendor.openai",
+      "from": "secret from environment in src/core/fixtures.ts",
+      "to": "prompt (OpenAI) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
       "key": "src/core/fixtures.ts|entry.secret.env>src/core/fixtures.ts|log.console",
       "from": "secret from environment in src/core/fixtures.ts",
       "to": "console output (stdout) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.secret.env>src/core/fixtures.ts|store.file.write",
+      "from": "secret from environment in src/core/fixtures.ts",
+      "to": "file write (Local filesystem) in src/core/fixtures.ts",
       "hops": 0
     }
   ]
