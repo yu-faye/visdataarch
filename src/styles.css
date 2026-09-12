@@ -87,7 +87,7 @@ body {
 .privacy-note {
   color: var(--muted);
   font-size: 12px;
-  max-width: 220px;
+  max-width: 260px;
   line-height: 1.35;
 }
 
