@@ -38,6 +38,9 @@ export const IGNORED_DIRS = new Set([
   // Build and release tooling does not run on the adopter's server. On
   // uptime-kuma the strongest paths were extra/release scripts.
   'scripts',
+  // Pre-scanned payloads. Left in the corpus they match their own stored
+  // snippets and the project's boundary becomes a copy of three other repos.
+  'gallery',
 ]);
 
 const TEXT_EXTENSIONS = new Set([

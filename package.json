@@ -10,7 +10,8 @@
     "typecheck": "tsc -b --noEmit",
     "scan": "tsx scripts/scan.ts",
     "boundary": "tsx scripts/scan.ts . --check",
-    "boundary:update": "tsx scripts/scan.ts . --update-baseline"
+    "boundary:update": "tsx scripts/scan.ts . --update-baseline",
+    "gallery:build": "tsx scripts/gallery.ts"
   },
   "dependencies": {
     "cytoscape": "^3.31.1",

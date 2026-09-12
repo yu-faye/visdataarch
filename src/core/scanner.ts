@@ -505,6 +505,12 @@ export function scan(files: ScannedFile[], rootName: string, skippedCount = 0): 
     }
   }
 
+  // Seven query-parameter lines in one notification provider used to produce
+  // seven routes to the same fetch. The baseline already treated them as one
+  // fact; the map and the CLI now do too. Touchpoints stay: the lines are
+  // still real. Only the routes collapse.
+  const collapsed = collapsePaths(paths, byId);
+
   return {
     scannedAt: new Date().toISOString(),
     rootName,
@@ -512,8 +518,37 @@ export function scan(files: ScannedFile[], rootName: string, skippedCount = 0): 
     skippedCount,
     modules,
     touchpoints,
-    paths,
-    findings: buildFindings(touchpoints, paths, byId),
-    stats: buildStats(touchpoints, paths),
+    paths: collapsed,
+    findings: buildFindings(touchpoints, collapsed, byId),
+    stats: buildStats(touchpoints, collapsed),
   };
+}
+
+function collapsePaths(paths: DataPath[], byId: Map<string, Touchpoint>): DataPath[] {
+  const kept = new Map<string, DataPath>();
+
+  for (const path of paths) {
+    const entry = byId.get(path.entryId);
+    const sink = byId.get(path.sinkId);
+    if (!entry || !sink) continue;
+
+    const key = `${entry.file}|${entry.ruleId}>${sink.file}|${sink.ruleId}`;
+    const existing = kept.get(key);
+    if (!existing) {
+      kept.set(key, path);
+      continue;
+    }
+
+    if (path.carriesValue !== existing.carriesValue) {
+      if (path.carriesValue) kept.set(key, path);
+      continue;
+    }
+    if (path.hops.length !== existing.hops.length) {
+      if (path.hops.length < existing.hops.length) kept.set(key, path);
+      continue;
+    }
+    if (comparePaths(path, existing, byId) < 0) kept.set(key, path);
+  }
+
+  return [...kept.values()];
 }

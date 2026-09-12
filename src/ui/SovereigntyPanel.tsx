@@ -50,7 +50,7 @@ export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPa
           {result.stats.exitsDefault} exit{result.stats.exitsDefault === 1 ? '' : 's'} fire on a
           default install, {result.stats.exitsOptIn} only if an operator turns them on,{' '}
           {result.stats.exitsProduct} are the product talking to the world on purpose. The scanner
-          followed {result.modules.length} files and found {result.paths.length}{' '}
+          followed {result.fileCount} files and found {result.paths.length}{' '}
           {result.paths.length === 1 ? 'route' : 'routes'} in total, of which{' '}
           {result.stats.pathsCarryingValue} can point at a line handing a value over at every step.
         </p>

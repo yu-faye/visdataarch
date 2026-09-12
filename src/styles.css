@@ -60,12 +60,35 @@ body {
 .actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.github-input {
+  width: min(280px, 42vw);
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.github-input:focus {
+  outline: 1px solid var(--accent);
+  border-color: var(--accent);
+}
+
+.github-input:disabled {
+  opacity: 0.55;
 }
 
 .privacy-note {
   color: var(--muted);
   font-size: 12px;
+  max-width: 220px;
+  line-height: 1.35;
 }
 
 button.primary {
@@ -84,6 +107,37 @@ button.primary:disabled {
   cursor: default;
 }
 
+button.ghost {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button.ghost:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+button.text-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--text);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+button.text-link:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 /* ------------------------------------------------------------------ banner */
 
 .banner {
@@ -96,6 +150,54 @@ button.primary:disabled {
 
 .banner.error {
   color: #d1495b;
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.gallery-card {
+  text-align: left;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.gallery-card strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.gallery-card span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.gallery-card.active {
+  border-color: var(--accent);
+}
+
+.gallery-card:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (max-width: 900px) {
+  .gallery {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ------------------------------------------------------------------ layout */
