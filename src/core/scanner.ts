@@ -1,5 +1,6 @@
 import { buildModuleIndex, extractImports, findPass } from './imports';
 import { comparePaths } from './rank';
+import { redactSnippet } from './redact';
 import { RULES } from './rules';
 import { SINK_KINDS } from './types';
 import type {
@@ -129,7 +130,7 @@ function matchRuleInFile(rule: Rule, file: ScannedFile, lines: string[]): Touchp
       sovereignty: rule.sovereignty,
       dataClasses: classes.length > 0 ? classes : ['unknown'],
       role: inferRole(rule, file, lines, i),
-      snippet: line.trim().slice(0, MAX_SNIPPET_LENGTH),
+      snippet: redactSnippet(line.trim().slice(0, MAX_SNIPPET_LENGTH)),
       ruleId: rule.id,
     });
 

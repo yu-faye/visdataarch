@@ -1,3 +1,4 @@
+import { redactSnippet } from './redact';
 import type { FlowEdge, ScannedFile } from './types';
 
 /**
@@ -14,9 +15,27 @@ const CANDIDATE_EXTENSIONS = ['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs'];
 /** Maps an alias prefix such as "@/" to a path prefix such as "src/". */
 export type AliasMap = Map<string, string>;
 
+/**
+ * One tsconfig and the part of the tree it governs.
+ *
+ * A monorepo has a tsconfig per package, and they disagree. immich has ten, and
+ * `server/tsconfig.json` maps `src/*` to its own `src`, which is `server/src`
+ * from the root. Reading a single config, and reading its targets as if they
+ * were rooted at the repository, left 1435 of immich's 1557 files with no
+ * resolved imports at all and a map whose longest path was one hop.
+ */
+export interface AliasScope {
+  /** Directory the config governs, '' at the root, otherwise ending in '/'. */
+  dir: string;
+  /** Prefix to prefix, both already rooted at the repository. */
+  aliases: AliasMap;
+  /** Where a bare specifier is looked up, when the config sets baseUrl. */
+  baseUrl?: string;
+}
+
 export interface ModuleIndex {
   known: Set<string>;
-  aliases: AliasMap;
+  scopes: AliasScope[];
   /** Names each module declares itself. */
   ownExports: Map<string, Set<string>>;
   /** `export { a } from './x'` — name to the module it came from. */
@@ -88,31 +107,66 @@ function stripJsonComments(text: string): string {
 }
 
 /**
- * Reads path aliases out of the scanned project's own tsconfig.
+ * Reads path aliases out of every tsconfig in the project.
  *
  * Without this, a Next.js codebase looks like a pile of disconnected files: it
  * imports almost everything through "@/", so every edge would be dropped and
  * the reachability analysis would find nothing at all.
+ *
+ * Scopes come back most specific first, so a package config is consulted before
+ * the one at the root and the two can disagree without either being wrong.
  */
-export function buildAliasMap(files: ScannedFile[]): AliasMap {
-  const aliases: AliasMap = new Map();
-  const config = files.find((file) => /(^|\/)tsconfig(\.\w+)?\.json$/.test(file.path));
-  if (!config) return aliases;
+export function buildAliasScopes(files: ScannedFile[]): AliasScope[] {
+  const scopes: AliasScope[] = [];
 
-  let paths: Record<string, string[]> | undefined;
-  try {
-    paths = JSON.parse(stripJsonComments(config.text))?.compilerOptions?.paths;
-  } catch {
-    return aliases;
-  }
-  if (!paths) return aliases;
+  for (const file of files) {
+    if (!/(^|\/)tsconfig(\.\w+)?\.json$/.test(file.path)) continue;
 
-  for (const [pattern, targets] of Object.entries(paths)) {
-    const target = targets?.[0];
-    if (!target) continue;
-    aliases.set(pattern.replace(/\*$/, ''), target.replace(/^\.\//, '').replace(/\*$/, ''));
+    let options: { paths?: Record<string, string[]>; baseUrl?: string } | undefined;
+    try {
+      options = JSON.parse(stripJsonComments(file.text))?.compilerOptions;
+    } catch {
+      continue;
+    }
+    if (!options) continue;
+
+    // Targets in a tsconfig are relative to the file, not to the repository.
+    const dir = file.path.includes('/') ? `${file.path.slice(0, file.path.lastIndexOf('/'))}/` : '';
+    const rootedAt = (value: string) => normalise(dir + value.replace(/^\.\//, ''));
+
+    const aliases: AliasMap = new Map();
+    for (const [pattern, targets] of Object.entries(options.paths ?? {})) {
+      const target = targets?.[0];
+      if (!target) continue;
+      aliases.set(pattern.replace(/\*$/, ''), `${rootedAt(target.replace(/\*$/, ''))}/`);
+    }
+
+    const baseUrl = options.baseUrl === undefined ? undefined : rootedAt(options.baseUrl);
+    if (aliases.size === 0 && baseUrl === undefined) continue;
+
+    scopes.push({ dir, aliases, baseUrl });
   }
-  return aliases;
+
+  scopes.push(...svelteKitScopes(files));
+  return scopes.sort((a, b) => b.dir.length - a.dir.length);
+}
+
+/**
+ * SvelteKit's `$lib`, which no committed file declares.
+ *
+ * The config that defines it lives in `.svelte-kit/`, generated at build time
+ * and gitignored, so a scan of the repository never sees it. The mapping is
+ * fixed by the framework rather than chosen per project, which is what makes
+ * assuming it safe. immich's web package alone imports through `$lib/` 2435
+ * times, every one of them invisible without this.
+ */
+function svelteKitScopes(files: ScannedFile[]): AliasScope[] {
+  return files
+    .filter((file) => /(^|\/)svelte\.config\.[cm]?js$/.test(file.path))
+    .map((file) => {
+      const dir = file.path.includes('/') ? `${file.path.slice(0, file.path.lastIndexOf('/'))}/` : '';
+      return { dir, aliases: new Map([['$lib/', `${dir}src/lib/`]]) };
+    });
 }
 
 /** Collapses "." and ".." segments. */
@@ -145,17 +199,28 @@ function resolveSpecifier(
   specifier: string,
   fromPath: string,
   known: Set<string>,
-  aliases: AliasMap,
+  scopes: AliasScope[],
 ): string | null {
   if (specifier.startsWith('.')) {
     const dir = fromPath.includes('/') ? fromPath.slice(0, fromPath.lastIndexOf('/')) : '';
     return resolveCandidate(normalise(`${dir}/${specifier}`), known);
   }
 
-  for (const [prefix, target] of aliases) {
-    if (!specifier.startsWith(prefix)) continue;
-    const hit = resolveCandidate(normalise(target + specifier.slice(prefix.length)), known);
-    if (hit) return hit;
+  for (const scope of scopes) {
+    // A package config governs its own subtree and says nothing about the rest.
+    if (scope.dir && !fromPath.startsWith(scope.dir)) continue;
+
+    for (const [prefix, target] of scope.aliases) {
+      if (!specifier.startsWith(prefix)) continue;
+      const hit = resolveCandidate(normalise(target + specifier.slice(prefix.length)), known);
+      if (hit) return hit;
+    }
+
+    // With a baseUrl set, a bare specifier is a path before it is a package.
+    if (scope.baseUrl !== undefined) {
+      const hit = resolveCandidate(normalise(`${scope.baseUrl}/${specifier}`), known);
+      if (hit) return hit;
+    }
   }
 
   // Anything left is a package from node_modules, which is out of scope.
@@ -191,7 +256,7 @@ function exposedNames(clause: string): string[] {
 
 export function buildModuleIndex(files: ScannedFile[]): ModuleIndex {
   const known = new Set(files.map((file) => file.path));
-  const aliases = buildAliasMap(files);
+  const scopes = buildAliasScopes(files);
 
   const ownExports = new Map<string, Set<string>>();
   const namedReexports = new Map<string, Map<string, string>>();
@@ -216,7 +281,7 @@ export function buildModuleIndex(files: ScannedFile[]): ModuleIndex {
     NAMED_REEXPORT.lastIndex = 0;
     let reexport: RegExpExecArray | null;
     while ((reexport = NAMED_REEXPORT.exec(file.text)) !== null) {
-      const target = resolveSpecifier(reexport[2], file.path, known, aliases);
+      const target = resolveSpecifier(reexport[2], file.path, known, scopes);
       if (!target) continue;
       for (const name of exposedNames(reexport[1])) named.set(name, target);
     }
@@ -226,13 +291,13 @@ export function buildModuleIndex(files: ScannedFile[]): ModuleIndex {
     STAR_REEXPORT.lastIndex = 0;
     let star: RegExpExecArray | null;
     while ((star = STAR_REEXPORT.exec(file.text)) !== null) {
-      const target = resolveSpecifier(star[1], file.path, known, aliases);
+      const target = resolveSpecifier(star[1], file.path, known, scopes);
       if (target) stars.push(target);
     }
     if (stars.length > 0) starReexports.set(file.path, stars);
   }
 
-  return { known, aliases, ownExports, namedReexports, starReexports };
+  return { known, scopes, ownExports, namedReexports, starReexports };
 }
 
 /** Depth of barrel chasing. Barrels nest, but never this deeply in practice. */
@@ -338,7 +403,7 @@ export function extractImports(file: ScannedFile, index: ModuleIndex): Extracted
   let statement: RegExpExecArray | null;
   while ((statement = IMPORT_STATEMENT.exec(file.text)) !== null) {
     const [, clause, specifier] = statement;
-    const target = resolveSpecifier(specifier, file.path, index.known, index.aliases);
+    const target = resolveSpecifier(specifier, file.path, index.known, index.scopes);
     if (!target) continue;
 
     const block = /\{([^}]*)\}/.exec(clause);
@@ -369,7 +434,7 @@ export function extractImports(file: ScannedFile, index: ModuleIndex): Extracted
     pattern.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = pattern.exec(file.text)) !== null) {
-      add(resolveSpecifier(match[1], file.path, index.known, index.aliases), []);
+      add(resolveSpecifier(match[1], file.path, index.known, index.scopes), []);
     }
   }
 
@@ -439,7 +504,11 @@ export function findPass(
       // something the reader can check.
       if (!match || match.index >= lines[i].length) continue;
 
-      return { symbol, line: i + 1, snippet: lines[i].trim().slice(0, MAX_EVIDENCE_SNIPPET) };
+      return {
+        symbol,
+        line: i + 1,
+        snippet: redactSnippet(lines[i].trim().slice(0, MAX_EVIDENCE_SNIPPET)),
+      };
     }
   }
 

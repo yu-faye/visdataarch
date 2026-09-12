@@ -1,3 +1,4 @@
+import { redactSnippet } from './redact';
 import type { ScanResult, Touchpoint } from './types';
 
 /**
@@ -18,11 +19,21 @@ export function slim(result: ScanResult): ScanResult {
     if (finding.touchpointId) used.add(finding.touchpointId);
   }
 
-  const touchpoints: Touchpoint[] = result.touchpoints.filter((tp) => used.has(tp.id));
+  const touchpoints: Touchpoint[] = result.touchpoints
+    .filter((tp) => used.has(tp.id))
+    .map((tp) => ({ ...tp, snippet: redactSnippet(tp.snippet) }));
+
+  const paths = result.paths.map((path) => ({
+    ...path,
+    evidence: path.evidence.map((hop) =>
+      hop.snippet ? { ...hop, snippet: redactSnippet(hop.snippet) } : hop,
+    ),
+  }));
 
   return {
     ...result,
     modules: [],
     touchpoints,
+    paths,
   };
 }
