@@ -111,35 +111,14 @@ export default function App() {
             void handleGithub(githubInput);
           }}
         >
-          <input
-            className="github-input"
-            type="text"
-            value={githubInput}
-            onChange={(event) => setGithubInput(event.target.value)}
-            placeholder="owner/repo or github.com URL"
-            aria-label="Public GitHub repository"
+          <button
+            type="button"
+            className="primary"
+            onClick={supportsDirectoryPicker() ? handlePick : () => inputRef.current?.click()}
             disabled={busy}
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-          />
-          <button type="submit" className="primary" disabled={busy || !githubInput.trim()}>
-            {busy ? busyLabel : 'Scan GitHub'}
+          >
+            {busy ? busyLabel : 'Scan a folder'}
           </button>
-          {supportsDirectoryPicker() ? (
-            <button type="button" className="ghost" onClick={handlePick} disabled={busy}>
-              Folder
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => inputRef.current?.click()}
-              disabled={busy}
-            >
-              Folder
-            </button>
-          )}
           <input
             ref={inputRef}
             type="file"
@@ -147,8 +126,23 @@ export default function App() {
             {...{ webkitdirectory: '', directory: '' }}
             onChange={(event) => void handleFileList(event.target.files)}
           />
+          <input
+            className="github-input"
+            type="text"
+            value={githubInput}
+            onChange={(event) => setGithubInput(event.target.value)}
+            placeholder="or a public owner/repo"
+            aria-label="Public GitHub repository"
+            disabled={busy}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+          />
+          <button type="submit" className="ghost" disabled={busy || !githubInput.trim()}>
+            Scan GitHub
+          </button>
           <span className="privacy-note">
-            Public GitHub is pulled in this tab from GitHub, not through us. Private code: Folder.
+            A local folder never leaves this tab. Public GitHub is fetched here, not through us.
           </span>
         </form>
       </header>
