@@ -123,6 +123,32 @@ const STORE_RULES: Rule[] = [
       'A raw SQL write. Raw statements are worth a second look because the columns are spelled out, which makes it easy to see exactly what is being kept.',
   },
   {
+    id: 'store.columnar',
+    kind: 'store',
+    label: 'analytics store write',
+    destination: 'ClickHouse',
+    jurisdiction: 'self-hosted',
+    sovereignty: 'sovereign',
+    dataClasses: ['telemetry'],
+    patterns: [/\bclickhouse\.(insert|insertMany)\s*\(/, /\binsert\s+into\s+\w+\s*\(/i],
+    severity: 'info',
+    explain:
+      'A second storage backend alongside the primary database. Two backends means two retention policies and two places to look when a deletion request arrives, and the second one is routinely forgotten.',
+  },
+  {
+    id: 'store.queue',
+    kind: 'store',
+    label: 'message queue write',
+    destination: 'Kafka',
+    jurisdiction: 'self-hosted',
+    sovereignty: 'sovereign',
+    dataClasses: ['unknown'],
+    patterns: [/\bkafka\.(sendMessage|sendMessages|send)\s*\(/, /\bproducer\.send\s*\(/],
+    severity: 'warn',
+    explain:
+      'A queue holds the payload until something consumes it, and its retention is configured on the broker rather than in this code. Whatever reaches here has left the reach of the application deletion path.',
+  },
+  {
     id: 'store.browser.storage',
     kind: 'store',
     label: 'browser storage write',
@@ -155,7 +181,9 @@ const STORE_RULES: Rule[] = [
     jurisdiction: 'self-hosted',
     sovereignty: 'sovereign',
     dataClasses: ['unknown'],
-    patterns: [/\bredis\.(set|setex|hset|mset)\s*\(/, /from\s+['"](ioredis|redis)['"]/],
+    // Not the import line. Importing a client says the dependency exists, which
+    // package.json already said; only a call says data was written.
+    patterns: [/\bredis(\.client)?\.(set|setex|setEx|hset|mset)\s*\(/],
     severity: 'info',
     explain:
       'Caches are easy to forget when honouring a deletion request, because they are rarely listed alongside the primary database.',
@@ -199,10 +227,39 @@ const EXIT_RULES: Rule[] = [
     jurisdiction: 'unknown',
     sovereignty: 'delegated',
     dataClasses: ['unknown'],
-    patterns: [/\b(await\s+)?fetch\s*\(/, /\baxios\.(get|post|put|patch|delete)\s*\(/, /\bgot\s*\(/],
+    // The lookbehinds matter. umami wraps its Redis cache in a method called
+    // fetch, so a bare /fetch\(/ reports the cache layer as a network egress
+    // and drags a handful of invented paths along with it.
+    patterns: [
+      /(?<![\w.])(?<!async )(?<!function )fetch\s*\(/,
+      /\baxios\.(get|post|put|patch|delete)\s*\(/,
+      /\bgot\s*\(/,
+    ],
     severity: 'warn',
     explain:
       'Data leaves the process here. Where it goes depends on the URL, which may be assembled at runtime and therefore invisible to a static scan.',
+  },
+  {
+    id: 'exit.url.literal',
+    kind: 'exit',
+    label: 'hardcoded external host',
+    jurisdiction: 'unknown',
+    sovereignty: 'delegated',
+    dataClasses: ['unknown'],
+    // Destinations are usually declared far from the call that uses them. In
+    // umami the telemetry pixel and the DuckDuckGo favicon endpoint both sit in
+    // a constants file, so matching only at the call site finds neither, and
+    // the favicon lookup quietly sends every referrer domain to a third party.
+    patterns: [
+      /['"`]https:\/\/(?!localhost|127\.|(?:www\.)?(?:w3|schema|json-schema)\.org)[a-z0-9-]+(\.[a-z0-9-]+)+/i,
+    ],
+    // Deliberately info. A named host is evidence of a destination, not proof
+    // that data reaches it: the same constants file holds the documentation
+    // link and the telemetry pixel, and nothing in the string distinguishes
+    // them. Overstating this would undermine the findings that are certain.
+    severity: 'info',
+    explain:
+      'A third-party host is named in the source. Whether data reaches it depends on the code path, but the destination is decided here, and hosts declared in a constants file are the ones most often forgotten.',
   },
 ];
 

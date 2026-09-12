@@ -18,7 +18,13 @@ import type {
 const MAX_HOPS = 8;
 /** One entry point that reaches sixty sinks is noise, not a finding. */
 const MAX_PATHS_PER_ENTRY = 12;
-const MAX_TOUCHPOINTS_PER_RULE_PER_FILE = 3;
+/**
+ * A cap of three was cheap until a rule started matching declarations rather
+ * than calls. Projects keep their outbound hosts together in one constants
+ * file, so the first three matches were documentation links and the telemetry
+ * pixel underneath them never appeared.
+ */
+const MAX_TOUCHPOINTS_PER_RULE_PER_FILE = 12;
 const MAX_SNIPPET_LENGTH = 200;
 
 const SEVERITY_ORDER: Record<Severity, number> = { critical: 0, warn: 1, info: 2 };
