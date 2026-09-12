@@ -108,24 +108,32 @@ function matchRuleInFile(rule: Rule, file: ScannedFile, lines: string[]): Touchp
  * would make the graph effectively undirected, and then everything reaches
  * everything, which is the same as knowing nothing.
  */
-function buildFlowEdges(modules: Module[], entryModules: Set<string>): Map<string, string[]> {
-  const edges = new Map<string, string[]>();
+interface FlowGraph {
+  /** Along the import: the importer hands something to the imported module. */
+  forward: Map<string, string[]>;
+  /** Out of a module holding an entry, to everything that imports it. */
+  origin: Map<string, string[]>;
+}
+
+function buildFlowEdges(modules: Module[], entryModules: Set<string>): FlowGraph {
+  const forward = new Map<string, string[]>();
+  const origin = new Map<string, string[]>();
 
   for (const module of modules) {
     const targets = module.flows.map((flow) => flow.to);
-    const existing = edges.get(module.id);
+    const existing = forward.get(module.id);
     if (existing) existing.push(...targets);
-    else edges.set(module.id, targets);
+    else forward.set(module.id, targets);
 
     for (const imported of targets) {
       if (!entryModules.has(imported)) continue;
-      const back = edges.get(imported);
+      const back = origin.get(imported);
       if (back) back.push(module.id);
-      else edges.set(imported, [module.id]);
+      else origin.set(imported, [module.id]);
     }
   }
 
-  return edges;
+  return { forward, origin };
 }
 
 /**
@@ -170,7 +178,7 @@ function hopEvidence(
  */
 function reachableSinks(
   start: string,
-  edges: Map<string, string[]>,
+  graph: FlowGraph,
   sinkModules: Set<string>,
 ): Map<string, string[]> {
   const found = new Map<string, string[]>();
@@ -181,7 +189,18 @@ function reachableSinks(
     const next: { id: string; chain: string[] }[] = [];
 
     for (const { id, chain } of frontier) {
-      for (const target of edges.get(id) ?? []) {
+      // Reverse edges are only available on the first step, out of the module
+      // where the data originates. Beyond that they turn a shared helper into a
+      // hub: every route imports the request parser, so walking into it and
+      // back out again connects every handler to every other handler's database
+      // write. In the fixture that produced a four-hop route from an API key in
+      // one file to a document write in a file it has nothing to do with.
+      const targets =
+        depth === 0
+          ? [...(graph.forward.get(id) ?? []), ...(graph.origin.get(id) ?? [])]
+          : (graph.forward.get(id) ?? []);
+
+      for (const target of targets) {
         if (seen.has(target)) continue;
         seen.add(target);
 
@@ -320,7 +339,7 @@ export function scan(files: ScannedFile[], rootName: string, skippedCount = 0): 
   const entryModules = new Set(
     touchpoints.filter((tp) => tp.kind === 'entry').map((tp) => tp.moduleId),
   );
-  const edges = buildFlowEdges(modules, entryModules);
+  const graph = buildFlowEdges(modules, entryModules);
 
   const declarationRules = new Set(RULES.filter((rule) => rule.declaration).map((r) => r.id));
 
@@ -349,7 +368,7 @@ export function scan(files: ScannedFile[], rootName: string, skippedCount = 0): 
 
     let chains = chainCache.get(entry.moduleId);
     if (!chains) {
-      chains = reachableSinks(entry.moduleId, edges, sinkModules);
+      chains = reachableSinks(entry.moduleId, graph, sinkModules);
       chainCache.set(entry.moduleId, chains);
     }
 
