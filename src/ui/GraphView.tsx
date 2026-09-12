@@ -12,10 +12,15 @@ cytoscape.use(dagre);
  * hundreds, and the ones worth looking at are short paths into storage or out
  * over the network, not long chains that end at a log line.
  */
-const MAX_EDGES = 60;
+const MAX_EDGES = 12;
 
 function rankPaths(paths: DataPath[], byId: Map<string, Touchpoint>): DataPath[] {
-  return [...paths].sort((a, b) => comparePaths(a, b, byId)).slice(0, MAX_EDGES);
+  // Logs belong in the panel. On the map they turn every real exit into a
+  // vertical stack of console.log nodes, which is what the first screen
+  // looked like: 227 routes, none of them the Google Fonts sentence.
+  const drawable = paths.filter((path) => byId.get(path.sinkId)?.kind !== 'log');
+  const pool = drawable.length > 0 ? drawable : paths;
+  return [...pool].sort((a, b) => comparePaths(a, b, byId)).slice(0, MAX_EDGES);
 }
 
 function shortLabel(touchpoint: Touchpoint): string {
