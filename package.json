@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit"
+    "typecheck": "tsc -b --noEmit",
+    "scan": "tsx scripts/scan.ts"
   },
   "dependencies": {
     "cytoscape": "^3.31.1",
@@ -20,6 +21,7 @@
     "@types/react": "^19.1.9",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^5.0.0",
+    "tsx": "^4.20.3",
     "typescript": "^5.9.2",
     "vite": "^7.1.0"
   }

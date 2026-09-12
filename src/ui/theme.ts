@@ -1,46 +1,45 @@
-import type { DataClass, Jurisdiction, Severity, SovereigntyLevel } from '../core/types';
+import type {
+  DataClass,
+  Jurisdiction,
+  Severity,
+  SovereigntyLevel,
+  TouchpointKind,
+} from '../core/types';
 
 /**
  * One source of truth for the visual language, shared by the graph and the
- * findings panel. If the two halves drift apart the map stops being readable,
- * so colour decisions live here rather than in either component.
+ * findings panel. If the two drift apart the map stops being readable, so the
+ * colour and wording decisions live here rather than in either component.
  */
 
-export const SOVEREIGNTY_COLOR: Record<SovereigntyLevel, string> = {
-  sovereign: '#2f9e6e',
-  controlled: '#3f7fd6',
-  delegated: '#d99424',
-  exposed: '#d1495b',
+export const KIND_COLOR: Record<TouchpointKind, string> = {
+  entry: '#3f7fd6',
+  store: '#2f9e6e',
+  exit: '#d1495b',
+  log: '#d99424',
 };
 
-export const SOVEREIGNTY_LABEL: Record<SovereigntyLevel, string> = {
-  sovereign: 'Sovereign',
-  controlled: 'Controlled',
-  delegated: 'Delegated',
-  exposed: 'Exposed',
+export const KIND_LABEL: Record<TouchpointKind, string> = {
+  entry: 'Entry',
+  store: 'Storage',
+  exit: 'Exit',
+  log: 'Log',
 };
 
-export const SOVEREIGNTY_MEANING: Record<SovereigntyLevel, string> = {
-  sovereign: 'You run the machine and hold the keys.',
-  controlled: 'Someone else runs it, but the region and the data are yours to move.',
-  delegated: 'A third party holds readable data under a contract.',
-  exposed: 'A third party holds readable data and may use it for their own purposes.',
+export const KIND_MEANING: Record<TouchpointKind, string> = {
+  entry: 'Data arrives from outside the process here.',
+  store: 'Data comes to rest here and is subject to retention and deletion duties.',
+  exit: 'Data leaves the process here, over the network or to disk.',
+  log: 'Data is written to logs, which is the most common accidental egress channel.',
 };
+
+/** Left to right, in the order data travels. */
+export const KIND_ORDER: TouchpointKind[] = ['entry', 'store', 'log', 'exit'];
 
 export const SEVERITY_COLOR: Record<Severity, string> = {
   critical: '#d1495b',
   warn: '#d99424',
   info: '#3f7fd6',
-};
-
-export const JURISDICTION_LABEL: Record<Jurisdiction, string> = {
-  local: 'On device',
-  'self-hosted': 'Self-hosted',
-  eu: 'European Union',
-  us: 'United States',
-  cn: 'China',
-  global: 'Global CDN',
-  unknown: 'Unverified',
 };
 
 export const DATA_CLASS_LABEL: Record<DataClass, string> = {
@@ -53,9 +52,27 @@ export const DATA_CLASS_LABEL: Record<DataClass, string> = {
   unknown: 'unclassified',
 };
 
-export const SOVEREIGNTY_ORDER: SovereigntyLevel[] = [
-  'sovereign',
-  'controlled',
-  'delegated',
-  'exposed',
-];
+/**
+ * Jurisdiction and sovereignty describe the outside world, so they annotate a
+ * destination rather than define it. Data in an EU datacentre run by a US
+ * company is 'eu' and 'delegated' at once, and collapsing the two into a single
+ * axis is the most common mistake in this area.
+ */
+export const JURISDICTION_LABEL: Record<Jurisdiction, string> = {
+  local: 'On device',
+  'self-hosted': 'Self-hosted',
+  eu: 'European Union',
+  uk: 'United Kingdom',
+  us: 'United States',
+  ca: 'Canada',
+  cn: 'China',
+  global: 'Global CDN',
+  unknown: 'Unverified',
+};
+
+export const SOVEREIGNTY_LABEL: Record<SovereigntyLevel, string> = {
+  sovereign: 'Sovereign',
+  controlled: 'Controlled',
+  delegated: 'Delegated',
+  exposed: 'Exposed',
+};

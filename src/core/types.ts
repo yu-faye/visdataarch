@@ -4,14 +4,22 @@
  * This file is the only hard dependency between the scanner half (src/core)
  * and the visualisation half (src/ui). Freeze it early; change it only by
  * agreement, because every change breaks the other person's work in progress.
+ *
+ * The tool answers one question: inside this codebase, where does data come in,
+ * where does it end up, and which entry points have a path to which sinks. Every
+ * claim it makes has to be derivable from the source in front of it. Facts about
+ * the outside world, such as which country a vendor operates in, are annotations
+ * on top of that, never the substance.
  */
 
-/** Where the data physically ends up. */
+/** Where the data physically ends up. Only meaningful for a known destination. */
 export type Jurisdiction =
   | 'local' // never leaves the user's machine
   | 'self-hosted' // infrastructure the project team controls
   | 'eu'
+  | 'uk'
   | 'us'
+  | 'ca'
   | 'cn'
   | 'global' // CDN / anycast, no single answer
   | 'unknown';
@@ -19,11 +27,11 @@ export type Jurisdiction =
 /** How much control the project still has over the data once it is there. */
 export type SovereigntyLevel =
   | 'sovereign' // we own the machine and the keys
-  | 'controlled' // third party, but data is encrypted or contractually fenced
-  | 'delegated' // third party holds plaintext, we hold a contract
-  | 'exposed'; // third party holds plaintext, terms allow secondary use
+  | 'controlled' // third party, but the region and the data are ours to move
+  | 'delegated' // third party holds plaintext under a contract
+  | 'exposed'; // third party holds plaintext and may use it for their own ends
 
-/** What kind of data is moving. Drives edge colour and finding severity. */
+/** What kind of data is moving. */
 export type DataClass =
   | 'pii'
   | 'auth'
@@ -33,45 +41,72 @@ export type DataClass =
   | 'telemetry'
   | 'unknown';
 
-export type NodeKind =
-  | 'app' // the code being scanned
-  | 'browser' // the end user's device
-  | 'store' // database, object storage, cache
-  | 'service' // backend we run ourselves
-  | 'thirdParty'; // someone else's servers
+export type Severity = 'info' | 'warn' | 'critical';
 
-export interface Evidence {
-  /** Path relative to the scanned root. */
+/**
+ * What a single line of code does to data.
+ *
+ * `log` is split out from `exit` on purpose. Writing to stdout is the most
+ * common accidental egress channel in any codebase, and burying it among
+ * deliberate network calls hides exactly the thing worth seeing.
+ */
+export type TouchpointKind =
+  | 'entry' // data arrives from outside the process
+  | 'store' // data is persisted
+  | 'exit' // data leaves over the network or to disk
+  | 'log'; // data is written to logs or stdout
+
+/** Anything that is not an entry is somewhere data can come to rest or leave. */
+export const SINK_KINDS: TouchpointKind[] = ['store', 'exit', 'log'];
+
+/** A single location in the code that reads, persists or emits data. */
+export interface Touchpoint {
+  id: string;
+  /** Module.id of the file it lives in. */
+  moduleId: string;
+  /** Path relative to the scanned root, POSIX separators. */
   file: string;
   line: number;
-  /** Single line, trimmed, truncated to 200 chars. Never include secrets. */
+  kind: TouchpointKind;
+  /** What happens here, e.g. "request body", "Prisma write", "outbound fetch". */
+  label: string;
+  /** Named counterparty when the code identifies one, e.g. "PostgreSQL". */
+  destination?: string;
+  jurisdiction?: Jurisdiction;
+  sovereignty?: SovereigntyLevel;
+  dataClasses: DataClass[];
+  /** Single line, trimmed, truncated. Never include secrets. */
   snippet: string;
   ruleId: string;
 }
 
-export interface DataNode {
+/** One source file, plus the edges it has to other source files. */
+export interface Module {
+  /** Path relative to the scanned root. Doubles as the display id. */
   id: string;
-  label: string;
-  kind: NodeKind;
-  jurisdiction: Jurisdiction;
-  sovereignty: SovereigntyLevel;
-  /** Company behind the node, when it is a third party. */
-  vendor?: string;
+  /** Module ids this file imports, already resolved. Unresolved ones are dropped. */
+  imports: string[];
+  /** Touchpoint ids found in this file. */
+  touchpoints: string[];
 }
 
-export interface DataFlow {
+/**
+ * A route from an entry touchpoint to a sink, over the import graph.
+ *
+ * `hops` holds every module on the way, so the UI can collapse the middle into
+ * a count and still offer the detail on demand. In a real codebase most files
+ * are plumbing, and drawing them all produces a hairball nobody can read.
+ */
+export interface DataPath {
   id: string;
-  /** DataNode.id */
-  source: string;
-  /** DataNode.id */
-  target: string;
-  label: string;
+  /** Touchpoint.id of kind 'entry'. */
+  entryId: string;
+  /** Touchpoint.id of a sink kind. */
+  sinkId: string;
+  /** Ordered module ids, entry module first, sink module last. */
+  hops: string[];
   dataClasses: DataClass[];
-  encrypted: boolean | 'unknown';
-  evidence: Evidence[];
 }
-
-export type Severity = 'info' | 'warn' | 'critical';
 
 export interface Finding {
   id: string;
@@ -80,16 +115,19 @@ export interface Finding {
   title: string;
   /** One or two sentences, plain English, aimed at a non-engineer. */
   detail: string;
-  nodeId?: string;
-  flowId?: string;
-  evidence: Evidence[];
+  touchpointId?: string;
+  pathId?: string;
 }
 
 export interface ScanStats {
-  sovereign: number;
-  controlled: number;
-  delegated: number;
-  exposed: number;
+  entries: number;
+  stores: number;
+  exits: number;
+  logs: number;
+  /** Entry points with at least one path to a sink. The headline number. */
+  connectedEntries: number;
+  /** Hop count of the longest path found. */
+  longestPath: number;
 }
 
 /**
@@ -102,8 +140,9 @@ export interface ScanResult {
   rootName: string;
   fileCount: number;
   skippedCount: number;
-  nodes: DataNode[];
-  flows: DataFlow[];
+  modules: Module[];
+  touchpoints: Touchpoint[];
+  paths: DataPath[];
   findings: Finding[];
   stats: ScanStats;
 }
@@ -116,23 +155,23 @@ export interface ScannedFile {
 }
 
 /**
- * A detection rule. Rules are data, not code paths: adding a vendor should be
+ * A detection rule. Rules are data, not code paths: adding a pattern should be
  * a matter of appending an object to the rule pack, nothing else.
  */
 export interface Rule {
   id: string;
-  /** Human name of the destination, e.g. "Stripe". */
-  vendor: string;
-  kind: NodeKind;
-  jurisdiction: Jurisdiction;
-  sovereignty: SovereigntyLevel;
+  kind: TouchpointKind;
+  /** Edge and node label, e.g. "request body". Keep it short. */
+  label: string;
+  /** Named counterparty, when the pattern identifies one. */
+  destination?: string;
+  jurisdiction?: Jurisdiction;
+  sovereignty?: SovereigntyLevel;
   dataClasses: DataClass[];
-  /** Any match counts as a hit. Must be global-free (no /g) to stay reusable. */
+  /** Any match counts as a hit. Must not carry /g, so they stay reusable. */
   patterns: RegExp[];
-  /** Optional filter on file path; omit to scan every text file. */
+  /** Optional filter on file path; omit to check every scanned file. */
   pathPattern?: RegExp;
-  /** Edge label in the graph, e.g. "card payments". */
-  flowLabel: string;
   severity: Severity;
   /** Shown in the findings panel. Plain English, no jargon. */
   explain: string;

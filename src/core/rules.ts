@@ -3,222 +3,352 @@ import type { Rule } from './types';
 /**
  * Rule pack.
  *
- * Adding coverage means appending an object here. No other file needs to change.
- * Keep patterns narrow enough that a comment mentioning a vendor does not
- * trigger a false positive: prefer import paths, SDK constructors and hostnames
- * over bare brand names.
+ * A rule marks one line of code as a place where data enters, is persisted, or
+ * leaves. Adding coverage means appending an object here; no other file changes.
+ *
+ * Keep patterns narrow. A pattern that also matches a comment or a documentation
+ * string costs more than the coverage it buys, because one visible false positive
+ * makes every other node on the map suspect.
  */
-export const RULES: Rule[] = [
-  // ---------------------------------------------------------------- analytics
+
+// --------------------------------------------------------------------- entry
+
+const ENTRY_RULES: Rule[] = [
   {
-    id: 'analytics.google',
-    vendor: 'Google Analytics',
-    kind: 'thirdParty',
+    id: 'entry.http.body',
+    kind: 'entry',
+    label: 'request body',
+    dataClasses: ['unknown'],
+    // The bounded gap matters: request.clone().json() is the idiomatic form in
+    // Next.js, and a pattern that insists on request.json() misses every one of
+    // them. That single omission is what hid umami's entire ingest path.
+    patterns: [
+      /\b(request|req)\b.{0,24}\.(json|text|formData|arrayBuffer|blob)\s*\(/,
+      /\breq\.body\b/,
+    ],
+    severity: 'info',
+    explain:
+      'Whatever a client sends arrives here. This is the boundary where untrusted, potentially personal data enters the system.',
+  },
+  {
+    id: 'entry.http.query',
+    kind: 'entry',
+    label: 'query parameters',
+    dataClasses: ['unknown'],
+    // Not a bare /searchParams/: umami exports a zod schema by that name, and
+    // matching it turned an import line in 76 files into a fake entry point.
+    patterns: [
+      /\b(url|nextUrl|request|req)\.searchParams\b/,
+      /\bsearchParams\.(get|getAll|entries|forEach)\s*\(/,
+      /\breq\.(query|params)\b/,
+      /new\s+URL\s*\(\s*(request|req)\.url/,
+    ],
+    severity: 'info',
+    explain:
+      'Query parameters are personal data more often than people expect, and unlike a request body they end up in server access logs by default.',
+  },
+  {
+    id: 'entry.http.headers',
+    kind: 'entry',
+    label: 'request headers',
+    dataClasses: ['telemetry'],
+    patterns: [
+      /\b(request|req)\.headers\b/,
+      /\bheaders\s*\(\s*\)\.get\s*\(/,
+      /\b(x-forwarded-for|x-real-ip|user-agent)\b/i,
+    ],
+    severity: 'warn',
+    explain:
+      'Headers carry the client IP address and user agent. Both are personal data under GDPR even when no account exists, and they arrive on every single request whether the application wants them or not.',
+  },
+  {
+    id: 'entry.browser.storage',
+    kind: 'entry',
+    label: 'browser storage read',
+    jurisdiction: 'local',
+    sovereignty: 'sovereign',
+    dataClasses: ['unknown'],
+    patterns: [/\b(localStorage|sessionStorage)\.getItem\s*\(/],
+    severity: 'info',
+    explain: 'Data the application previously left on the visitor device is read back here.',
+  },
+  {
+    id: 'entry.secret.env',
+    kind: 'entry',
+    label: 'secret from environment',
+    dataClasses: ['auth'],
+    patterns: [/process\.env\.[A-Z0-9_]*(KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL)[A-Z0-9_]*/],
+    severity: 'warn',
+    explain:
+      'A credential is read here. Follow where it goes: a secret that reaches a log line or an error report has effectively been published.',
+  },
+  {
+    id: 'entry.file.read',
+    kind: 'entry',
+    label: 'file read',
+    dataClasses: ['content'],
+    patterns: [/\bfs\.(promises\.)?readFile(Sync)?\s*\(/, /\breadFile(Sync)?\s*\(/],
+    severity: 'info',
+    explain: 'Content is loaded from disk into the process here.',
+  },
+];
+
+// --------------------------------------------------------------------- store
+
+const STORE_RULES: Rule[] = [
+  {
+    id: 'store.prisma.write',
+    kind: 'store',
+    label: 'Prisma write',
+    destination: 'Application database',
+    jurisdiction: 'self-hosted',
+    sovereignty: 'sovereign',
+    dataClasses: ['unknown'],
+    patterns: [/\.\s*(create|createMany|update|updateMany|upsert|delete|deleteMany)\s*\(\s*\{/],
+    pathPattern: /(queries|models|repositor|prisma|db)/i,
+    severity: 'info',
+    explain: 'Data comes to rest here. Anything written is subject to retention and deletion duties.',
+  },
+  {
+    id: 'store.sql.insert',
+    kind: 'store',
+    label: 'SQL write',
+    destination: 'Application database',
+    jurisdiction: 'self-hosted',
+    sovereignty: 'sovereign',
+    dataClasses: ['unknown'],
+    patterns: [/\bINSERT\s+INTO\b/i, /\bUPDATE\s+\w+\s+SET\b/i],
+    severity: 'info',
+    explain:
+      'A raw SQL write. Raw statements are worth a second look because the columns are spelled out, which makes it easy to see exactly what is being kept.',
+  },
+  {
+    id: 'store.browser.storage',
+    kind: 'store',
+    label: 'browser storage write',
+    destination: "Visitor's device",
+    jurisdiction: 'local',
+    sovereignty: 'sovereign',
+    dataClasses: ['unknown'],
+    patterns: [/\b(localStorage|sessionStorage)\.setItem\s*\(/],
+    severity: 'info',
+    explain:
+      'Data is left on the visitor device. It survives the session and is readable by any script on the same origin.',
+  },
+  {
+    id: 'store.file.write',
+    kind: 'store',
+    label: 'file write',
+    destination: 'Local filesystem',
+    jurisdiction: 'self-hosted',
+    sovereignty: 'sovereign',
+    dataClasses: ['content'],
+    patterns: [/\bfs\.(promises\.)?writeFile(Sync)?\s*\(/, /\bcreateWriteStream\s*\(/],
+    severity: 'info',
+    explain: 'Data is written to disk, where it outlives the process and may not be covered by database backups or deletion routines.',
+  },
+  {
+    id: 'store.redis',
+    kind: 'store',
+    label: 'cache write',
+    destination: 'Redis',
+    jurisdiction: 'self-hosted',
+    sovereignty: 'sovereign',
+    dataClasses: ['unknown'],
+    patterns: [/\bredis\.(set|setex|hset|mset)\s*\(/, /from\s+['"](ioredis|redis)['"]/],
+    severity: 'info',
+    explain:
+      'Caches are easy to forget when honouring a deletion request, because they are rarely listed alongside the primary database.',
+  },
+];
+
+// ----------------------------------------------------------------------- log
+
+const LOG_RULES: Rule[] = [
+  {
+    id: 'log.console',
+    kind: 'log',
+    label: 'console output',
+    destination: 'stdout',
+    dataClasses: ['unknown'],
+    patterns: [/\bconsole\.(log|info|warn|error|debug)\s*\(/],
+    severity: 'warn',
+    explain:
+      'Logs are the most common accidental egress channel. Whatever is printed here is collected by whatever ships the logs, and that is usually a different system with a different retention policy.',
+  },
+  {
+    id: 'log.logger',
+    kind: 'log',
+    label: 'structured log',
+    destination: 'log pipeline',
+    dataClasses: ['unknown'],
+    patterns: [/\blog(ger)?\.(info|warn|error|debug|trace)\s*\(/, /from\s+['"](pino|winston|bunyan)['"]/],
+    severity: 'warn',
+    explain:
+      'A structured logger usually ships off the machine. Treat every field written here as if it were sent to a third party, because it generally is.',
+  },
+];
+
+// ---------------------------------------------------------------------- exit
+
+const EXIT_RULES: Rule[] = [
+  {
+    id: 'exit.network.generic',
+    kind: 'exit',
+    label: 'outbound request',
+    jurisdiction: 'unknown',
+    sovereignty: 'delegated',
+    dataClasses: ['unknown'],
+    patterns: [/\b(await\s+)?fetch\s*\(/, /\baxios\.(get|post|put|patch|delete)\s*\(/, /\bgot\s*\(/],
+    severity: 'warn',
+    explain:
+      'Data leaves the process here. Where it goes depends on the URL, which may be assembled at runtime and therefore invisible to a static scan.',
+  },
+];
+
+// ------------------------------------------------- named third-party destinations
+
+/**
+ * These are still exits. The destination only adds a name and a jurisdiction to
+ * something the generic network rule would catch anyway, so treat it as an
+ * annotation rather than as the finding itself.
+ */
+const VENDOR_RULES: Rule[] = [
+  {
+    id: 'exit.vendor.google-analytics',
+    kind: 'exit',
+    label: 'analytics beacon',
+    destination: 'Google Analytics',
     jurisdiction: 'us',
     sovereignty: 'exposed',
     dataClasses: ['telemetry', 'pii'],
-    patterns: [
-      /googletagmanager\.com\/gtag/,
-      /google-analytics\.com/,
-      /\bgtag\s*\(\s*['"]config['"]/,
-    ],
-    flowLabel: 'page views, device fingerprint',
+    patterns: [/googletagmanager\.com\/gtag/, /google-analytics\.com/, /\bgtag\s*\(\s*['"]config['"]/],
     severity: 'critical',
     explain:
       'Google Analytics receives an identifier for every visitor along with their IP address. Under GDPR this is a transfer of personal data to the United States and needs a documented legal basis.',
   },
   {
-    id: 'analytics.mixpanel',
-    vendor: 'Mixpanel',
-    kind: 'thirdParty',
-    jurisdiction: 'us',
-    sovereignty: 'delegated',
-    dataClasses: ['telemetry', 'pii'],
-    patterns: [/from\s+['"]mixpanel(-browser)?['"]/, /mixpanel\.(init|identify|track)\s*\(/],
-    flowLabel: 'product events, user ids',
-    severity: 'warn',
-    explain:
-      'Mixpanel stores behavioural events keyed to a user id. Whether this is personal data depends on what you put in the event properties.',
-  },
-  {
-    id: 'analytics.posthog',
-    vendor: 'PostHog',
-    kind: 'thirdParty',
-    jurisdiction: 'unknown',
-    sovereignty: 'controlled',
-    dataClasses: ['telemetry'],
-    patterns: [/from\s+['"]posthog-(js|node)['"]/, /posthog\.(init|capture)\s*\(/],
-    flowLabel: 'product events',
-    severity: 'info',
-    explain:
-      'PostHog can be self-hosted. Check the configured host: if it points at eu.posthog.com or your own domain, the sovereignty picture is very different from the US cloud.',
-  },
-  {
-    id: 'analytics.segment',
-    vendor: 'Segment',
-    kind: 'thirdParty',
+    id: 'exit.vendor.segment',
+    kind: 'exit',
+    label: 'event stream fan-out',
+    destination: 'Segment',
     jurisdiction: 'us',
     sovereignty: 'exposed',
     dataClasses: ['telemetry', 'pii'],
     patterns: [/cdn\.segment\.(com|io)/, /analytics\.(identify|track)\s*\(/],
-    flowLabel: 'event stream fan-out',
     severity: 'critical',
     explain:
-      'Segment is a broker: it forwards the same events to every downstream tool you enable in its dashboard. The code cannot tell you who ultimately receives the data.',
+      'Segment is a broker: it forwards the same events to every downstream tool enabled in its dashboard. The code cannot tell you who ultimately receives the data.',
   },
-
-  // -------------------------------------------------------------- error / APM
   {
-    id: 'observability.sentry',
-    vendor: 'Sentry',
-    kind: 'thirdParty',
+    id: 'exit.vendor.sentry',
+    kind: 'exit',
+    label: 'crash report',
+    destination: 'Sentry',
     jurisdiction: 'us',
     sovereignty: 'delegated',
     dataClasses: ['telemetry', 'pii'],
     patterns: [/from\s+['"]@sentry\//, /Sentry\.init\s*\(/, /ingest\.sentry\.io/],
-    flowLabel: 'stack traces, request context',
     severity: 'warn',
     explain:
       'Crash reports routinely carry request bodies, headers and user ids. Sentry has an EU region and a self-hosted option; confirm which one the DSN points at.',
   },
   {
-    id: 'observability.datadog',
-    vendor: 'Datadog',
-    kind: 'thirdParty',
-    jurisdiction: 'us',
-    sovereignty: 'delegated',
-    dataClasses: ['telemetry'],
-    patterns: [/from\s+['"]@datadog\//, /datadoghq\.(com|eu)/],
-    flowLabel: 'logs, traces, metrics',
-    severity: 'warn',
-    explain:
-      'Application logs are the most common accidental channel for personal data. Anything written to a log line leaves your infrastructure.',
-  },
-
-  // ----------------------------------------------------------------- AI / LLM
-  {
-    id: 'ai.openai',
-    vendor: 'OpenAI',
-    kind: 'thirdParty',
-    jurisdiction: 'us',
-    sovereignty: 'delegated',
-    dataClasses: ['content', 'pii'],
-    patterns: [/from\s+['"]openai['"]/, /api\.openai\.com/, /OPENAI_API_KEY/],
-    flowLabel: 'prompts, user content',
-    severity: 'critical',
-    explain:
-      'Whatever the user types into the feature reaches OpenAI verbatim. If the product handles customer documents, this is a processor relationship that has to appear in the privacy notice.',
-  },
-  {
-    id: 'ai.anthropic',
-    vendor: 'Anthropic',
-    kind: 'thirdParty',
-    jurisdiction: 'us',
-    sovereignty: 'delegated',
-    dataClasses: ['content', 'pii'],
-    patterns: [/from\s+['"]@anthropic-ai\//, /api\.anthropic\.com/, /ANTHROPIC_API_KEY/],
-    flowLabel: 'prompts, user content',
-    severity: 'critical',
-    explain:
-      'Same exposure as any hosted model provider: the prompt is the payload. Check whether prompts are logged on your side as well.',
-  },
-
-  // ------------------------------------------------------- backend / database
-  {
-    id: 'backend.firebase',
-    vendor: 'Firebase',
-    kind: 'store',
-    jurisdiction: 'us',
-    sovereignty: 'exposed',
-    dataClasses: ['pii', 'auth', 'content'],
-    patterns: [/from\s+['"]firebase\//, /initializeApp\s*\(/, /firebaseio\.com/],
-    flowLabel: 'primary datastore',
-    severity: 'critical',
-    explain:
-      'Firebase holds the application state itself, not just a copy. Migrating away later is a rewrite, so this is the single most consequential sovereignty decision in the stack.',
-  },
-  {
-    id: 'backend.supabase',
-    vendor: 'Supabase',
-    kind: 'store',
+    id: 'exit.vendor.posthog',
+    kind: 'exit',
+    label: 'product events',
+    destination: 'PostHog',
     jurisdiction: 'unknown',
     sovereignty: 'controlled',
-    dataClasses: ['pii', 'auth', 'content'],
-    patterns: [/from\s+['"]@supabase\//, /supabase\.co/, /SUPABASE_URL/],
-    flowLabel: 'primary datastore',
+    dataClasses: ['telemetry'],
+    patterns: [/from\s+['"]posthog-(js|node)['"]/, /posthog\.(init|capture)\s*\(/],
+    severity: 'info',
+    explain:
+      'PostHog can be self-hosted. Check the configured host: eu.posthog.com and the US cloud are the same import and completely different answers.',
+  },
+  {
+    id: 'exit.vendor.openai',
+    kind: 'exit',
+    label: 'prompt',
+    destination: 'OpenAI',
+    jurisdiction: 'us',
+    sovereignty: 'delegated',
+    dataClasses: ['content', 'pii'],
+    patterns: [/from\s+['"]openai['"]/, /api\.openai\.com/],
+    severity: 'critical',
+    explain:
+      'Whatever reaches this call is sent to OpenAI verbatim. If the product handles customer documents, this is a processor relationship that has to appear in the privacy notice.',
+  },
+  {
+    id: 'exit.vendor.anthropic',
+    kind: 'exit',
+    label: 'prompt',
+    destination: 'Anthropic',
+    jurisdiction: 'us',
+    sovereignty: 'delegated',
+    dataClasses: ['content', 'pii'],
+    patterns: [/from\s+['"]@anthropic-ai\//, /api\.anthropic\.com/],
+    severity: 'critical',
+    explain: 'Same exposure as any hosted model provider: the prompt is the payload.',
+  },
+  {
+    id: 'exit.vendor.mistral',
+    kind: 'exit',
+    label: 'prompt',
+    destination: 'Mistral',
+    jurisdiction: 'eu',
+    sovereignty: 'delegated',
+    dataClasses: ['content'],
+    patterns: [/from\s+['"]@mistralai\//, /api\.mistral\.ai/],
     severity: 'warn',
     explain:
-      'Supabase is Postgres, so the data is portable and the region is selectable. Record which region the project actually runs in.',
+      'A French provider, so the prompt stays inside the EU. Worth naming explicitly, because using a hosted model does not have to mean a transfer to the United States.',
   },
   {
-    id: 'backend.postgres',
-    vendor: 'PostgreSQL',
-    kind: 'store',
-    jurisdiction: 'self-hosted',
-    sovereignty: 'sovereign',
-    dataClasses: ['pii', 'content'],
-    patterns: [/postgres(ql)?:\/\//, /from\s+['"](pg|postgres)['"]/, /DATABASE_URL/],
-    flowLabel: 'primary datastore',
-    severity: 'info',
-    explain:
-      'A database you run yourself. Sovereign as long as the host and the backups are also yours, which is worth verifying separately.',
-  },
-  {
-    id: 'backend.s3',
-    vendor: 'AWS S3',
-    kind: 'store',
-    jurisdiction: 'us',
-    sovereignty: 'controlled',
-    dataClasses: ['content'],
-    patterns: [/from\s+['"]@aws-sdk\/client-s3['"]/, /s3[.-][a-z0-9-]+\.amazonaws\.com/],
-    flowLabel: 'file storage',
-    severity: 'info',
-    explain:
-      'Object storage is controlled rather than sovereign: the region is yours to pick, the legal entity operating it is not.',
-  },
-
-  // --------------------------------------------------------------- payment
-  {
-    id: 'payment.stripe',
-    vendor: 'Stripe',
-    kind: 'thirdParty',
+    id: 'exit.vendor.stripe',
+    kind: 'exit',
+    label: 'payment',
+    destination: 'Stripe',
     jurisdiction: 'us',
     sovereignty: 'delegated',
     dataClasses: ['payment', 'pii'],
-    patterns: [/from\s+['"]@?stripe/, /js\.stripe\.com/, /STRIPE_SECRET_KEY/],
-    flowLabel: 'card payments, billing identity',
+    patterns: [/from\s+['"]@?stripe/, /js\.stripe\.com/],
     severity: 'warn',
     explain:
-      'Delegating card data to Stripe is usually the right call: it removes PCI scope from your own systems. Note it anyway, because billing records are personal data.',
+      'Delegating card data to Stripe is usually the right call, since it removes PCI scope from your own systems. Note it anyway, because billing records are personal data.',
   },
-
-  // --------------------------------------------------------------- identity
   {
-    id: 'auth.auth0',
-    vendor: 'Auth0',
-    kind: 'thirdParty',
-    jurisdiction: 'us',
-    sovereignty: 'delegated',
-    dataClasses: ['auth', 'pii'],
-    patterns: [/from\s+['"]@auth0\//, /\.auth0\.com/],
-    flowLabel: 'credentials, session identity',
-    severity: 'warn',
-    explain:
-      'The identity provider is the chokepoint for every user in the system. Losing access to it is an outage you cannot route around.',
-  },
-
-  // ----------------------------------------------------------------- assets
-  {
-    id: 'assets.google-fonts',
-    vendor: 'Google Fonts',
-    kind: 'thirdParty',
+    id: 'exit.vendor.google-fonts',
+    kind: 'exit',
+    label: 'visitor IP on page load',
+    destination: 'Google Fonts',
     jurisdiction: 'us',
     sovereignty: 'exposed',
     dataClasses: ['telemetry'],
     patterns: [/fonts\.(googleapis|gstatic)\.com/],
-    flowLabel: 'visitor IP on every page load',
     severity: 'warn',
     explain:
       'Loading fonts from Google sends each visitor IP address to Google before any consent banner appears. German courts have already ruled against this; self-hosting the font files removes the issue entirely.',
   },
+  {
+    id: 'exit.vendor.s3',
+    kind: 'exit',
+    label: 'object upload',
+    destination: 'AWS S3',
+    jurisdiction: 'us',
+    sovereignty: 'controlled',
+    dataClasses: ['content'],
+    patterns: [/from\s+['"]@aws-sdk\/client-s3['"]/, /s3[.-][a-z0-9-]+\.amazonaws\.com/],
+    severity: 'info',
+    explain:
+      'Object storage is controlled rather than sovereign: the region is yours to pick, the legal entity operating it is not.',
+  },
+];
+
+export const RULES: Rule[] = [
+  ...ENTRY_RULES,
+  ...STORE_RULES,
+  ...LOG_RULES,
+  ...EXIT_RULES,
+  ...VENDOR_RULES,
 ];

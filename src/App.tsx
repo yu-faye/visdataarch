@@ -58,7 +58,7 @@ export default function App() {
       <header className="topbar">
         <div className="brand">
           <h1>visdataarch</h1>
-          <p>Every place your project hands data to someone else.</p>
+          <p>Where data enters your code, and everywhere it can reach from there.</p>
         </div>
 
         <div className="actions">

@@ -1,12 +1,13 @@
-import type { ScanResult } from '../core/types';
+import { useMemo } from 'react';
+import type { ScanResult, Touchpoint } from '../core/types';
 import {
   DATA_CLASS_LABEL,
   JURISDICTION_LABEL,
+  KIND_COLOR,
+  KIND_LABEL,
+  KIND_MEANING,
+  KIND_ORDER,
   SEVERITY_COLOR,
-  SOVEREIGNTY_COLOR,
-  SOVEREIGNTY_LABEL,
-  SOVEREIGNTY_MEANING,
-  SOVEREIGNTY_ORDER,
 } from './theme';
 
 interface SovereigntyPanelProps {
@@ -16,18 +17,44 @@ interface SovereigntyPanelProps {
 }
 
 export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPanelProps) {
-  const nodeById = new Map(result.nodes.map((node) => [node.id, node]));
+  const byId = useMemo(
+    () => new Map(result.touchpoints.map((tp) => [tp.id, tp])),
+    [result.touchpoints],
+  );
+
+  const counts: Record<string, number> = {
+    entry: result.stats.entries,
+    store: result.stats.stores,
+    exit: result.stats.exits,
+    log: result.stats.logs,
+  };
+
+  const classes = useMemo(() => {
+    const found = new Set(result.paths.flatMap((path) => path.dataClasses));
+    return [...found];
+  }, [result.paths]);
 
   return (
     <aside className="panel">
       <section className="panel-section">
-        <h2>Where it stands</h2>
+        <p className="headline">
+          {result.stats.connectedEntries} of {result.stats.entries} entry points
+        </p>
+        <p className="headline-sub">
+          have a path to somewhere data is stored, logged or sent out. The scanner followed{' '}
+          {result.modules.length} files and found {result.paths.length}{' '}
+          {result.paths.length === 1 ? 'route' : 'routes'} in total.
+        </p>
+      </section>
+
+      <section className="panel-section">
+        <h2>Touchpoints</h2>
         <div className="tally">
-          {SOVEREIGNTY_ORDER.map((level) => (
-            <div key={level} className="tally-row" title={SOVEREIGNTY_MEANING[level]}>
-              <span className="swatch" style={{ background: SOVEREIGNTY_COLOR[level] }} />
-              <span className="tally-label">{SOVEREIGNTY_LABEL[level]}</span>
-              <span className="tally-count">{result.stats[level]}</span>
+          {KIND_ORDER.map((kind) => (
+            <div key={kind} className="tally-row" title={KIND_MEANING[kind]}>
+              <span className="swatch" style={{ background: KIND_COLOR[kind] }} />
+              <span className="tally-label">{KIND_LABEL[kind]}</span>
+              <span className="tally-count">{counts[kind]}</span>
             </div>
           ))}
         </div>
@@ -40,41 +67,33 @@ export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPa
       <section className="panel-section">
         <h2>Findings</h2>
         {result.findings.length === 0 && (
-          <p className="muted">No third-party destinations detected yet.</p>
+          <p className="muted">Nothing detected. Either the project is unusually clean, or the
+          rules do not yet cover the way it is written.</p>
         )}
         <ul className="findings">
-          {result.findings.map((finding) => {
-            const node = finding.nodeId ? nodeById.get(finding.nodeId) : undefined;
-            const isSelected = selectedId === finding.nodeId || selectedId === finding.flowId;
+          {result.findings.slice(0, 40).map((finding) => {
+            const touchpoint = finding.touchpointId ? byId.get(finding.touchpointId) : undefined;
+            const isSelected = selectedId === finding.touchpointId;
 
             return (
               <li key={finding.id}>
                 <button
                   type="button"
                   className={isSelected ? 'finding selected' : 'finding'}
-                  onClick={() => onSelect(isSelected ? null : finding.nodeId ?? null)}
+                  onClick={() => onSelect(isSelected ? null : finding.touchpointId ?? null)}
                 >
                   <span className="finding-head">
                     <span
                       className="severity-dot"
                       style={{ background: SEVERITY_COLOR[finding.severity] }}
                     />
-                    <strong>{node?.vendor ?? finding.title}</strong>
-                    {node && <span className="chip">{JURISDICTION_LABEL[node.jurisdiction]}</span>}
+                    <strong>{finding.title}</strong>
                   </span>
-                  <p className="finding-detail">{finding.detail}</p>
-                  {isSelected && (
-                    <ul className="evidence">
-                      {finding.evidence.map((item) => (
-                        <li key={`${item.file}:${item.line}`}>
-                          <code>
-                            {item.file}:{item.line}
-                          </code>
-                          <pre>{item.snippet}</pre>
-                        </li>
-                      ))}
-                    </ul>
+                  {touchpoint?.jurisdiction && (
+                    <span className="chip">{JURISDICTION_LABEL[touchpoint.jurisdiction]}</span>
                   )}
+                  <p className="finding-detail">{finding.detail}</p>
+                  {isSelected && touchpoint && <Evidence touchpoint={touchpoint} />}
                 </button>
               </li>
             );
@@ -85,24 +104,34 @@ export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPa
       <section className="panel-section">
         <h2>Legend</h2>
         <dl className="legend">
-          {SOVEREIGNTY_ORDER.map((level) => (
-            <div key={level}>
+          {KIND_ORDER.map((kind) => (
+            <div key={kind}>
               <dt>
-                <span className="swatch" style={{ background: SOVEREIGNTY_COLOR[level] }} />
-                {SOVEREIGNTY_LABEL[level]}
+                <span className="swatch" style={{ background: KIND_COLOR[kind] }} />
+                {KIND_LABEL[kind]}
               </dt>
-              <dd>{SOVEREIGNTY_MEANING[level]}</dd>
+              <dd>{KIND_MEANING[kind]}</dd>
             </div>
           ))}
         </dl>
-        <p className="muted">
-          Data classes in play:{' '}
-          {[...new Set(result.flows.flatMap((flow) => flow.dataClasses))]
-            .map((cls) => DATA_CLASS_LABEL[cls])
-            .join(', ')}
-          .
-        </p>
+        {classes.length > 0 && (
+          <p className="muted">
+            Data classes inferred from the code around each touchpoint:{' '}
+            {classes.map((cls) => DATA_CLASS_LABEL[cls]).join(', ')}.
+          </p>
+        )}
       </section>
     </aside>
+  );
+}
+
+function Evidence({ touchpoint }: { touchpoint: Touchpoint }) {
+  return (
+    <div className="evidence">
+      <code>
+        {touchpoint.file}:{touchpoint.line}
+      </code>
+      <pre>{touchpoint.snippet}</pre>
+    </div>
   );
 }

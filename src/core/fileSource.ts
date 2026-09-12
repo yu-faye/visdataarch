@@ -8,7 +8,7 @@ import type { ScannedFile } from './types';
  * server in order to make that argument.
  */
 
-const IGNORED_DIRS = new Set([
+export const IGNORED_DIRS = new Set([
   'node_modules',
   '.git',
   'dist',
@@ -23,6 +23,13 @@ const IGNORED_DIRS = new Set([
   'coverage',
   '.turbo',
   '.cache',
+  // Data movement in a test is not data movement in the product, and test files
+  // are dense with exactly the patterns the rules look for.
+  '__tests__',
+  '__mocks__',
+  'tests',
+  'test',
+  'e2e',
 ]);
 
 const TEXT_EXTENSIONS = new Set([
@@ -37,15 +44,18 @@ const MAX_FILE_BYTES = 512 * 1024;
 
 const IGNORED_FILENAMES = /^(package-lock\.json|yarn\.lock|pnpm-lock\.yaml|poetry\.lock|Cargo\.lock)$/;
 
+const TEST_FILENAME = /\.(test|spec)\.[cm]?[jt]sx?$/;
+
 export interface FileCollection {
   files: ScannedFile[];
   skippedCount: number;
   rootName: string;
 }
 
-function isScannable(path: string, size: number): boolean {
+export function isScannable(path: string, size: number): boolean {
   const name = path.split('/').pop() ?? '';
   if (IGNORED_FILENAMES.test(name)) return false;
+  if (TEST_FILENAME.test(name)) return false;
   if (size > MAX_FILE_BYTES) return false;
 
   if (name.toLowerCase() === 'dockerfile') return true;
