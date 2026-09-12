@@ -7,11 +7,25 @@
  *
  *   npm run scan -- ~/scan-targets/umami
  *   npm run scan -- ~/scan-targets/umami --json > result.json
+ *
+ * It is also where the boundary check lives, which is the form the tool takes
+ * once it stops being something you visit and starts being something that
+ * speaks up on its own:
+ *
+ *   npm run scan -- . --update-baseline   record the boundary as it is today
+ *   npm run scan -- . --check             fail if anything new has appeared
  */
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { basename, join, resolve } from 'node:path';
 import { scan } from '../src/core/scanner.ts';
 import { isScannable, IGNORED_DIRS } from '../src/core/fileSource.ts';
+import {
+  buildBaseline,
+  diffBaseline,
+  formatDiff,
+  hasAdditions,
+  type Baseline,
+} from '../src/core/baseline.ts';
 import type { DataPath, ScannedFile, Touchpoint } from '../src/core/types.ts';
 
 async function collect(root: string): Promise<{ files: ScannedFile[]; skipped: number }> {
@@ -180,10 +194,38 @@ const wantsJson = args.includes('--json');
 const debugIndex = args.indexOf('--module');
 const pathIndex = args.indexOf('--paths');
 
+const baselineIndex = args.indexOf('--baseline');
+// The baseline belongs to the project being scanned. It is committed there, so
+// that its history answers "when did we start sending data to this host".
+const baselinePath =
+  baselineIndex !== -1
+    ? resolve(args[baselineIndex + 1] ?? '')
+    : join(target, 'visdataarch.baseline.json');
+
 const { files, skipped } = await collect(target);
 const result = scan(files, basename(target), skipped);
 
-if (pathIndex !== -1) {
+if (args.includes('--update-baseline')) {
+  await writeFile(baselinePath, `${JSON.stringify(buildBaseline(result), null, 2)}\n`, 'utf8');
+  const { touchpoints, paths } = buildBaseline(result);
+  console.log(
+    `wrote ${baselinePath}\n  ${touchpoints.length} touchpoints, ${paths.length} confirmed routes`,
+  );
+} else if (args.includes('--check')) {
+  let previous: Baseline | null = null;
+  try {
+    previous = JSON.parse(await readFile(baselinePath, 'utf8')) as Baseline;
+  } catch {
+    console.error(
+      `No baseline at ${baselinePath}.\nRecord the current boundary first:\n  npm run scan -- ${positional[0] ?? '.'} --update-baseline`,
+    );
+    process.exit(2);
+  }
+
+  const diff = diffBaseline(previous, buildBaseline(result));
+  console.log(formatDiff(diff));
+  if (hasAdditions(diff)) process.exit(1);
+} else if (pathIndex !== -1) {
   const needle = args[pathIndex + 1] ?? '';
   const byId = new Map(result.touchpoints.map((tp) => [tp.id, tp]));
   const hits = result.paths.filter((path) => {

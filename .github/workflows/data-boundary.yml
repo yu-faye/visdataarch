@@ -1,0 +1,67 @@
+# Watches this repository's own data boundary.
+#
+# A tool about data sovereignty that does not hold itself to the check it sells
+# is not worth much, so the scanner is pointed at its own source. The baseline
+# it compares against is visdataarch.baseline.json, committed alongside the
+# code, which means its git history answers "when did we start doing this".
+name: Data boundary
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Compare against the recorded boundary
+        id: check
+        shell: bash
+        run: |
+          set +e
+          npm run scan --silent -- . --check > delta.txt 2>&1
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+          cat delta.txt
+
+      # Written whether or not anything moved, so that "nothing changed" is a
+      # result the reader can see rather than an absence they have to infer.
+      - name: Record the result in the run summary
+        shell: bash
+        run: |
+          {
+            echo '## Data boundary'
+            echo
+            echo '```'
+            cat delta.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Say so on the pull request
+        if: github.event_name == 'pull_request' && steps.check.outputs.status != '0'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo 'This change moves the data boundary of the project.'
+            echo
+            echo '```'
+            cat delta.txt
+            echo '```'
+          } | gh pr comment "${{ github.event.number }}" --body-file -
+
+      - name: Fail if the boundary grew
+        if: steps.check.outputs.status != '0'
+        run: exit 1

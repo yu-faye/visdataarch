@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "root": "VisDataArch",
+  "touchpoints": [
+    {
+      "key": "scripts/scan.ts|entry.file.read|",
+      "file": "scripts/scan.ts",
+      "ruleId": "entry.file.read",
+      "kind": "entry",
+      "label": "file read",
+      "count": 2
+    },
+    {
+      "key": "scripts/scan.ts|log.console|stdout",
+      "file": "scripts/scan.ts",
+      "ruleId": "log.console",
+      "kind": "log",
+      "label": "console output",
+      "destination": "stdout",
+      "count": 12
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.body|",
+      "file": "src/core/fixtures.ts",
+      "ruleId": "entry.http.body",
+      "kind": "entry",
+      "label": "request body",
+      "count": 1
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.headers|",
+      "file": "src/core/fixtures.ts",
+      "ruleId": "entry.http.headers",
+      "kind": "entry",
+      "label": "request headers",
+      "count": 1
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.query|",
+      "file": "src/core/fixtures.ts",
+      "ruleId": "entry.http.query",
+      "kind": "entry",
+      "label": "query parameters",
+      "count": 1
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.secret.env|",
+      "file": "src/core/fixtures.ts",
+      "ruleId": "entry.secret.env",
+      "kind": "entry",
+      "label": "secret from environment",
+      "count": 1
+    },
+    {
+      "key": "src/core/fixtures.ts|exit.url.literal|",
+      "file": "src/core/fixtures.ts",
+      "ruleId": "exit.url.literal",
+      "kind": "exit",
+      "label": "hardcoded external host",
+      "count": 2
+    },
+    {
+      "key": "src/core/fixtures.ts|exit.vendor.google-analytics|Google Analytics",
+      "file": "src/core/fixtures.ts",
+      "ruleId": "exit.vendor.google-analytics",
+      "kind": "exit",
+      "label": "analytics beacon",
+      "destination": "Google Analytics",
+      "count": 1
+    },
+    {
+      "key": "src/core/fixtures.ts|exit.vendor.google-fonts|Google Fonts",
+      "file": "src/core/fixtures.ts",
+      "ruleId": "exit.vendor.google-fonts",
+      "kind": "exit",
+      "label": "visitor IP on page load",
+      "destination": "Google Fonts",
+      "count": 1
+    },
+    {
+      "key": "src/core/fixtures.ts|exit.vendor.openai|OpenAI",
+      "file": "src/core/fixtures.ts",
+      "ruleId": "exit.vendor.openai",
+      "kind": "exit",
+      "label": "prompt",
+      "destination": "OpenAI",
+      "count": 1
+    },
+    {
+      "key": "src/core/fixtures.ts|log.console|stdout",
+      "file": "src/core/fixtures.ts",
+      "ruleId": "log.console",
+      "kind": "log",
+      "label": "console output",
+      "destination": "stdout",
+      "count": 1
+    },
+    {
+      "key": "src/core/rules.ts|entry.file.read|",
+      "file": "src/core/rules.ts",
+      "ruleId": "entry.file.read",
+      "kind": "entry",
+      "label": "file read",
+      "count": 1
+    },
+    {
+      "key": "src/core/rules.ts|entry.http.body|",
+      "file": "src/core/rules.ts",
+      "ruleId": "entry.http.body",
+      "kind": "entry",
+      "label": "request body",
+      "count": 2
+    },
+    {
+      "key": "src/core/rules.ts|entry.http.headers|",
+      "file": "src/core/rules.ts",
+      "ruleId": "entry.http.headers",
+      "kind": "entry",
+      "label": "request headers",
+      "count": 1
+    }
+  ],
+  "paths": [
+    {
+      "key": "scripts/scan.ts|entry.file.read>scripts/scan.ts|log.console",
+      "from": "file read in scripts/scan.ts",
+      "to": "console output (stdout) in scripts/scan.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.body>src/core/fixtures.ts|log.console",
+      "from": "request body in src/core/fixtures.ts",
+      "to": "console output (stdout) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.headers>src/core/fixtures.ts|log.console",
+      "from": "request headers in src/core/fixtures.ts",
+      "to": "console output (stdout) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.http.query>src/core/fixtures.ts|log.console",
+      "from": "query parameters in src/core/fixtures.ts",
+      "to": "console output (stdout) in src/core/fixtures.ts",
+      "hops": 0
+    },
+    {
+      "key": "src/core/fixtures.ts|entry.secret.env>src/core/fixtures.ts|log.console",
+      "from": "secret from environment in src/core/fixtures.ts",
+      "to": "console output (stdout) in src/core/fixtures.ts",
+      "hops": 0
+    }
+  ]
+}
