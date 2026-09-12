@@ -1,10 +1,38 @@
 import { useEffect, useRef } from 'react';
 import cytoscape from 'cytoscape';
 import dagre from 'cytoscape-dagre';
-import type { ScanResult } from '../core/types';
-import { SOVEREIGNTY_COLOR } from './theme';
+import type { DataClass, DataFlow, ScanResult, Severity } from '../core/types';
+import {
+  DATA_CLASS_COLOR,
+  DATA_CLASS_LABEL,
+  DATA_CLASS_ORDER,
+  SEVERITY_EDGE_WIDTH,
+  SOVEREIGNTY_COLOR,
+} from './theme';
 
 cytoscape.use(dagre);
+
+const SEVERITY_RANK: Record<Severity, number> = { critical: 0, warn: 1, info: 2 };
+
+/** The worst finding attached to a flow; flows without a finding are informational. */
+function flowSeverity(flow: DataFlow, result: ScanResult): Severity {
+  let worst: Severity = 'info';
+  for (const finding of result.findings) {
+    if (finding.flowId !== flow.id) continue;
+    if (SEVERITY_RANK[finding.severity] < SEVERITY_RANK[worst]) worst = finding.severity;
+  }
+  return worst;
+}
+
+function dominantClass(classes: DataClass[]): DataClass {
+  return DATA_CLASS_ORDER.find((cls) => classes.includes(cls)) ?? 'unknown';
+}
+
+/** Two lines: what the flow is, then what it carries, so a screenshot needs no legend. */
+function edgeLabel(flow: DataFlow): string {
+  const classes = flow.dataClasses.map((cls) => DATA_CLASS_LABEL[cls]).join(', ');
+  return `${flow.label}\n${classes}`;
+}
 
 interface GraphViewProps {
   result: ScanResult;
@@ -35,7 +63,10 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
             id: flow.id,
             source: flow.source,
             target: flow.target,
-            label: flow.label,
+            label: edgeLabel(flow),
+            width: SEVERITY_EDGE_WIDTH[flowSeverity(flow, result)],
+            color: DATA_CLASS_COLOR[dominantClass(flow.dataClasses)],
+            lineStyle: flow.encrypted === 'unknown' ? 'dashed' : 'solid',
           },
         })),
       ],
@@ -63,12 +94,15 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
         {
           selector: 'edge',
           style: {
-            width: 1.5,
-            'line-color': '#4a4a52',
-            'target-arrow-color': '#4a4a52',
+            width: 'data(width)',
+            'line-color': 'data(color)',
+            'line-style': 'data(lineStyle)' as cytoscape.Css.LineStyle,
+            'target-arrow-color': 'data(color)',
             'target-arrow-shape': 'triangle',
             'curve-style': 'bezier',
             label: 'data(label)',
+            'text-wrap': 'wrap',
+            'text-max-width': '160px',
             'font-size': 10,
             color: '#8b8b95',
             'text-rotation': 'autorotate',

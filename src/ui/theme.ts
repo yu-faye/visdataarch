@@ -59,3 +59,36 @@ export const SOVEREIGNTY_ORDER: SovereigntyLevel[] = [
   'delegated',
   'exposed',
 ];
+
+/** Most sensitive first. A flow takes the colour of the worst thing it carries. */
+export const DATA_CLASS_ORDER: DataClass[] = [
+  'health',
+  'payment',
+  'auth',
+  'pii',
+  'content',
+  'telemetry',
+  'unknown',
+];
+
+/**
+ * Edge colours. Deliberately lighter and cooler than the sovereignty palette
+ * so the two dimensions never read as one: nodes say who controls the data,
+ * edges say what the data is.
+ */
+export const DATA_CLASS_COLOR: Record<DataClass, string> = {
+  health: '#b678d8',
+  payment: '#d98b6e',
+  auth: '#c9b458',
+  pii: '#62b6c4',
+  content: '#8a9cc0',
+  telemetry: '#7f8c8a',
+  unknown: '#4a4a52',
+};
+
+/** Edge width in pixels, by the severity of the finding on that flow. */
+export const SEVERITY_EDGE_WIDTH: Record<Severity, number> = {
+  critical: 4,
+  warn: 2.5,
+  info: 1.5,
+};
