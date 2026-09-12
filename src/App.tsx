@@ -4,7 +4,8 @@ import { readGithubRepo } from './core/githubSource';
 import { scan } from './core/scanner';
 import type { ScanResult } from './core/types';
 import { GALLERY } from './gallery/catalog';
-import { GraphView } from './ui/GraphView';
+import { downloadMapPng } from './ui/exportPng';
+import { GraphView, type GraphViewHandle } from './ui/GraphView';
 import { SovereigntyPanel } from './ui/SovereigntyPanel';
 
 const GITHUB_PARAM = 'github';
@@ -44,6 +45,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [githubInput, setGithubInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
+  const graphRef = useRef<GraphViewHandle>(null);
   // The hash the page was opened with, waiting for the first result that contains it.
   const pendingHash = useRef<string | null>(readHash());
 
@@ -172,6 +174,17 @@ export default function App() {
     [apply],
   );
 
+  const handleExport = useCallback(async () => {
+    const png = graphRef.current?.toPng({ full: true, scale: 2, bg: '#141417' });
+    if (!png) return;
+    setError(null);
+    try {
+      await downloadMapPng(png, result);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not export the map.');
+    }
+  }, [result]);
+
   return (
     <div className="app">
       <header className="topbar">
@@ -216,6 +229,14 @@ export default function App() {
               Folder
             </button>
           )}
+          <button
+            type="button"
+            className="ghost"
+            onClick={() => void handleExport()}
+            disabled={busy || result.paths.length === 0}
+          >
+            Export PNG
+          </button>
           <input
             ref={inputRef}
             type="file"
@@ -247,7 +268,7 @@ export default function App() {
       {error && <div className="banner error">{error}</div>}
 
       <main className="layout">
-        <GraphView result={result} selectedId={selectedId} onSelect={setSelectedId} />
+        <GraphView ref={graphRef} result={result} selectedId={selectedId} onSelect={setSelectedId} />
         <SovereigntyPanel result={result} selectedId={selectedId} onSelect={setSelectedId} />
       </main>
     </div>

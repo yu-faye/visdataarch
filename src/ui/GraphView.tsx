@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef } from 'react';
 import cytoscape from 'cytoscape';
 import dagre from 'cytoscape-dagre';
 import { comparePaths } from '../core/rank';
@@ -77,9 +77,19 @@ interface GraphViewProps {
   onSelect: (id: string | null) => void;
 }
 
-export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
+export interface GraphViewHandle {
+  /** The whole graph as a PNG data URL, or null before the graph exists. */
+  toPng: (options?: cytoscape.ExportStringOptions) => string | null;
+}
+
+export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function GraphView(
+  { result, selectedId, onSelect },
+  ref,
+) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
+
+  useImperativeHandle(ref, () => ({ toPng: (options) => cyRef.current?.png(options) ?? null }), []);
 
   const elements = useMemo(() => {
     const byId = new Map(result.touchpoints.map((tp) => [tp.id, tp]));
@@ -247,4 +257,4 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
   }
 
   return <div className="graph" ref={containerRef} />;
-}
+});
