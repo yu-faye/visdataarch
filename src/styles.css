@@ -290,6 +290,20 @@ button.text-link:disabled {
   flex: none;
 }
 
+/* Edge samples for the legend; weight and dash match GraphView's defaults. */
+.line-swatch {
+  width: 18px;
+  height: 0;
+  border-top: 2.5px solid var(--muted);
+  display: inline-block;
+  flex: none;
+}
+
+.line-swatch.dashed {
+  border-top-style: dashed;
+  opacity: 0.55;
+}
+
 /* ---------------------------------------------------------------- findings */
 
 .findings {

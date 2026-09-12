@@ -1,13 +1,16 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type { ScanResult, Touchpoint } from '../core/types';
 import {
   DATA_CLASS_LABEL,
+  EDGE_MEANING,
   JURISDICTION_LABEL,
   KIND_COLOR,
   KIND_LABEL,
   KIND_MEANING,
   KIND_ORDER,
   SEVERITY_COLOR,
+  SEVERITY_LABEL,
+  SEVERITY_ORDER_UI,
 } from './theme';
 
 interface SovereigntyPanelProps {
@@ -21,6 +24,17 @@ export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPa
     () => new Map(result.touchpoints.map((tp) => [tp.id, tp])),
     [result.touchpoints],
   );
+
+  // A selection can arrive from the graph or from a link, so bring the
+  // matching finding into view instead of leaving it below the fold. Several
+  // findings can point at one touchpoint; the first is the one to land on.
+  const selectedRef = useRef<HTMLButtonElement>(null);
+  const firstSelected = result.findings.findIndex(
+    (finding) => finding.touchpointId !== undefined && finding.touchpointId === selectedId,
+  );
+  useEffect(() => {
+    selectedRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [selectedId]);
 
   const counts: Record<string, number> = {
     entry: result.stats.entries,
@@ -80,13 +94,14 @@ export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPa
           rules do not yet cover the way it is written.</p>
         )}
         <ul className="findings">
-          {result.findings.slice(0, 40).map((finding) => {
+          {result.findings.slice(0, 40).map((finding, index) => {
             const touchpoint = finding.touchpointId ? byId.get(finding.touchpointId) : undefined;
             const isSelected = selectedId === finding.touchpointId;
 
             return (
               <li key={finding.id}>
                 <button
+                  ref={index === firstSelected ? selectedRef : undefined}
                   type="button"
                   className={isSelected ? 'finding selected' : 'finding'}
                   onClick={() => onSelect(isSelected ? null : finding.touchpointId ?? null)}
@@ -122,6 +137,36 @@ export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPa
               <dd>{KIND_MEANING[kind]}</dd>
             </div>
           ))}
+        </dl>
+        <dl className="legend">
+          <div>
+            <dt>
+              <span className="line-swatch" />
+              Solid route
+            </dt>
+            <dd>{EDGE_MEANING.solid}</dd>
+          </div>
+          <div>
+            <dt>
+              <span className="line-swatch dashed" />
+              Dashed route
+            </dt>
+            <dd>{EDGE_MEANING.dashed}</dd>
+          </div>
+          <div>
+            <dt>
+              {SEVERITY_ORDER_UI.map((severity) => (
+                <span
+                  key={severity}
+                  className="severity-dot"
+                  style={{ background: SEVERITY_COLOR[severity] }}
+                  title={SEVERITY_LABEL[severity]}
+                />
+              ))}
+              Route weight
+            </dt>
+            <dd>{EDGE_MEANING.weight}</dd>
+          </div>
         </dl>
         {classes.length > 0 && (
           <p className="muted">
