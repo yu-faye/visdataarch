@@ -132,10 +132,11 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
   }, [result]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
+    const container = containerRef.current;
+    if (!container) return;
 
     const cy = cytoscape({
-      container: containerRef.current,
+      container,
       elements,
       style: [
         {
@@ -199,8 +200,25 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
       if (event.target === cy) onSelect(null);
     });
 
+    // A map laid out while its container had no usable size (a background
+    // tab, a pane still opening) is fitted to a zoom of nothing or not fitted
+    // at all, and stays that way once the container appears. Fit it the first
+    // time the container is usable, and otherwise leave the viewport alone so
+    // a resize never fights the reader's own zoom.
+    const usable = () => container.clientWidth > 80 && container.clientHeight > 80;
+    let fitted = usable();
+    const observer = new ResizeObserver(() => {
+      cy.resize();
+      if (!fitted && usable()) {
+        fitted = true;
+        cy.fit(undefined, 30);
+      }
+    });
+    observer.observe(container);
+
     cyRef.current = cy;
     return () => {
+      observer.disconnect();
       cy.destroy();
       cyRef.current = null;
     };
