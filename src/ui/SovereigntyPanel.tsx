@@ -2,12 +2,15 @@ import { useMemo } from 'react';
 import type { ScanResult, Touchpoint } from '../core/types';
 import {
   DATA_CLASS_LABEL,
+  EDGE_MEANING,
   JURISDICTION_LABEL,
   KIND_COLOR,
   KIND_LABEL,
   KIND_MEANING,
   KIND_ORDER,
   SEVERITY_COLOR,
+  SEVERITY_LABEL,
+  SEVERITY_ORDER_UI,
 } from './theme';
 
 interface SovereigntyPanelProps {
@@ -122,6 +125,36 @@ export function SovereigntyPanel({ result, selectedId, onSelect }: SovereigntyPa
               <dd>{KIND_MEANING[kind]}</dd>
             </div>
           ))}
+        </dl>
+        <dl className="legend">
+          <div>
+            <dt>
+              <span className="line-swatch" />
+              Solid route
+            </dt>
+            <dd>{EDGE_MEANING.solid}</dd>
+          </div>
+          <div>
+            <dt>
+              <span className="line-swatch dashed" />
+              Dashed route
+            </dt>
+            <dd>{EDGE_MEANING.dashed}</dd>
+          </div>
+          <div>
+            <dt>
+              {SEVERITY_ORDER_UI.map((severity) => (
+                <span
+                  key={severity}
+                  className="severity-dot"
+                  style={{ background: SEVERITY_COLOR[severity] }}
+                  title={SEVERITY_LABEL[severity]}
+                />
+              ))}
+              Route weight
+            </dt>
+            <dd>{EDGE_MEANING.weight}</dd>
+          </div>
         </dl>
         {classes.length > 0 && (
           <p className="muted">

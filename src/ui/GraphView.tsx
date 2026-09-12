@@ -2,8 +2,15 @@ import { useEffect, useMemo, useRef } from 'react';
 import cytoscape from 'cytoscape';
 import dagre from 'cytoscape-dagre';
 import { comparePaths } from '../core/rank';
-import type { DataPath, ScanResult, Touchpoint } from '../core/types';
-import { KIND_COLOR } from './theme';
+import type { DataPath, Finding, ScanResult, Severity, Touchpoint } from '../core/types';
+import {
+  EDGE_DASH_PATTERN,
+  EDGE_UNCONFIRMED_OPACITY,
+  EXIT_ROLE_SHORT,
+  KIND_COLOR,
+  SEVERITY_COLOR,
+  SEVERITY_EDGE_WIDTH,
+} from './theme';
 
 cytoscape.use(dagre);
 
@@ -26,6 +33,42 @@ function rankPaths(paths: DataPath[], byId: Map<string, Touchpoint>): DataPath[]
 function shortLabel(touchpoint: Touchpoint): string {
   const file = touchpoint.file.split('/').pop() ?? touchpoint.file;
   return `${touchpoint.label}\n${file}:${touchpoint.line}`;
+}
+
+const SEVERITY_RANK: Record<Severity, number> = { critical: 0, warn: 1, info: 2 };
+
+/**
+ * The severity the panel reports for a route, so the map and the findings
+ * list agree. A finding is minted once per pair of rules rather than once per
+ * path, so most routes borrow the severity of the finding on their sink's
+ * rule. A route with no finding behind it is informational by definition.
+ */
+function severityIndex(findings: Finding[]): {
+  byPath: Map<string, Severity>;
+  byRule: Map<string, Severity>;
+} {
+  const byPath = new Map<string, Severity>();
+  const byRule = new Map<string, Severity>();
+  for (const finding of findings) {
+    if (finding.pathId && !byPath.has(finding.pathId)) byPath.set(finding.pathId, finding.severity);
+    const current = byRule.get(finding.ruleId);
+    if (!current || SEVERITY_RANK[finding.severity] < SEVERITY_RANK[current]) {
+      byRule.set(finding.ruleId, finding.severity);
+    }
+  }
+  return { byPath, byRule };
+}
+
+/**
+ * Hop count, and for an exit the reason it is in the code. That second word is
+ * the one that travels across repositories: "opt-in" and "on by default" are
+ * different sentences even when the destination is the same.
+ */
+function edgeLabel(path: DataPath, sink: Touchpoint | undefined): string {
+  const hops = path.hops.length - 1;
+  const distance = hops === 0 ? 'same file' : `${hops} ${hops === 1 ? 'hop' : 'hops'}`;
+  const role = sink?.kind === 'exit' && sink.role ? ` · ${EXIT_ROLE_SHORT[sink.role]}` : '';
+  return distance + role;
 }
 
 interface GraphViewProps {
@@ -64,16 +107,22 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
 
     // A solid line means every hop could be shown handing a value over. A
     // dashed one means only that the files are connected, which is a weaker
-    // thing to say and should not look the same on the map.
+    // thing to say and should not look the same on the map. Colour and weight
+    // come from the finding at the sink, never from the data classes seen near
+    // either end: those are hints about a line, not a claim about the route.
+    const { byPath, byRule } = severityIndex(result.findings);
     const edges = shown.map((path) => {
-      const hops = path.hops.length - 1;
+      const sink = byId.get(path.sinkId);
+      const severity: Severity =
+        byPath.get(path.id) ?? (sink ? byRule.get(sink.ruleId) : undefined) ?? 'info';
       return {
         data: {
           id: path.id,
           source: path.entryId,
           target: path.sinkId,
-          label: hops === 0 ? 'same file' : `${hops} ${hops === 1 ? 'hop' : 'hops'}`,
-          weight: path.carriesValue ? 2.5 : 1.2,
+          label: edgeLabel(path, sink),
+          color: SEVERITY_COLOR[severity],
+          weight: SEVERITY_EDGE_WIDTH[severity],
           unconfirmed: path.carriesValue ? 0 : 1,
         },
       };
@@ -114,8 +163,8 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
           selector: 'edge',
           style: {
             width: 'data(weight)',
-            'line-color': '#3d3d46',
-            'target-arrow-color': '#3d3d46',
+            'line-color': 'data(color)',
+            'target-arrow-color': 'data(color)',
             'target-arrow-shape': 'triangle',
             'arrow-scale': 0.8,
             'curve-style': 'bezier',
@@ -130,11 +179,15 @@ export function GraphView({ result, selectedId, onSelect }: GraphViewProps) {
         },
         {
           selector: 'edge[unconfirmed = 1]',
-          style: { 'line-style': 'dashed', 'line-dash-pattern': [5, 4] },
+          style: {
+            'line-style': 'dashed',
+            'line-dash-pattern': EDGE_DASH_PATTERN,
+            opacity: EDGE_UNCONFIRMED_OPACITY,
+          },
         },
         {
           selector: 'edge:selected',
-          style: { 'line-color': '#e8e8ea', 'target-arrow-color': '#e8e8ea' },
+          style: { 'line-color': '#e8e8ea', 'target-arrow-color': '#e8e8ea', opacity: 1 },
         },
       ],
       layout: { name: 'dagre', rankDir: 'LR', nodeSep: 26, rankSep: 190 } as cytoscape.LayoutOptions,
