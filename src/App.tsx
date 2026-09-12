@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { pickDirectory, readFileList, supportsDirectoryPicker } from './core/fileSource';
 import { readGithubRepo } from './core/githubSource';
 import { scan } from './core/scanner';
@@ -6,6 +6,7 @@ import type { ScanResult } from './core/types';
 import { GALLERY } from './gallery/catalog';
 import { GraphView } from './ui/GraphView';
 import { SovereigntyPanel } from './ui/SovereigntyPanel';
+import { flowCaption, pickLeadVuln, vulnForNode, vulnForPath, vulnsFromScan } from './ui/vuln';
 
 const GITHUB_PARAM = 'github';
 let autoStarted = false;
@@ -13,17 +14,27 @@ let autoStarted = false;
 export default function App() {
   const [result, setResult] = useState<ScanResult>(GALLERY[0].result);
   const [activeId, setActiveId] = useState<string | null>(GALLERY[0].id);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedVulnId, setSelectedVulnId] = useState<string | null>(
+    () => pickLeadVuln(vulnsFromScan(GALLERY[0].result))?.id ?? null,
+  );
+  const [focusNonce, setFocusNonce] = useState(0);
   const [busy, setBusy] = useState(false);
   const [busyLabel, setBusyLabel] = useState('Reading…');
   const [error, setError] = useState<string | null>(null);
   const [githubInput, setGithubInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const vulns = useMemo(() => vulnsFromScan(result), [result]);
+  const selected = useMemo(
+    () => vulns.find((vuln) => vuln.id === selectedVulnId) ?? null,
+    [vulns, selectedVulnId],
+  );
+  const activeEntry = GALLERY.find((entry) => entry.id === activeId);
+
   const apply = useCallback((next: ScanResult, galleryId: string | null = null) => {
     setResult(next);
     setActiveId(galleryId);
-    setSelectedId(null);
+    setSelectedVulnId(pickLeadVuln(vulnsFromScan(next))?.id ?? null);
   }, []);
 
   const handleGithub = useCallback(
@@ -62,6 +73,11 @@ export default function App() {
     void handleGithub(preset);
   }, [handleGithub]);
 
+  useEffect(() => {
+    if (selectedVulnId) return;
+    setSelectedVulnId(pickLeadVuln(vulns)?.id ?? null);
+  }, [selectedVulnId, vulns]);
+
   const handlePick = useCallback(async () => {
     setError(null);
     setBusy(true);
@@ -96,12 +112,35 @@ export default function App() {
     [apply],
   );
 
+  const handleSelectPath = useCallback(
+    (pathId: string) => {
+      const match = vulnForPath(vulns, pathId);
+      if (match) setSelectedVulnId(match.id);
+    },
+    [vulns],
+  );
+
+  const handleSelectNode = useCallback(
+    (nodeId: string) => {
+      const match = vulnForNode(vulns, nodeId);
+      if (match) setSelectedVulnId(match.id);
+    },
+    [vulns],
+  );
+
+  const focusNodeIds = useMemo(() => {
+    if (!selected) return [];
+    return [selected.flow?.entry.id, selected.flow?.sink.id, selected.touchpoint?.id].filter(
+      (id): id is string => Boolean(id),
+    );
+  }, [selected]);
+
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
           <h1>visdataarch</h1>
-          <p>Where data enters your code, and everywhere it can reach from there.</p>
+          <p>Data in, and everywhere it can reach.</p>
         </div>
 
         <form
@@ -147,9 +186,6 @@ export default function App() {
             {...{ webkitdirectory: '', directory: '' }}
             onChange={(event) => void handleFileList(event.target.files)}
           />
-          <span className="privacy-note">
-            Public GitHub is pulled in this tab from GitHub, not through us. Private code: Folder.
-          </span>
         </form>
       </header>
 
@@ -162,17 +198,32 @@ export default function App() {
             className={activeId === entry.id ? 'gallery-card active' : 'gallery-card'}
             disabled={busy}
             onClick={() => apply(entry.result, entry.id)}
+            title={entry.sentence}
           >
             <strong>{entry.repo}</strong>
-            <span>{entry.sentence}</span>
           </button>
         ))}
       </div>
       {error && <div className="banner error">{error}</div>}
 
       <main className="layout">
-        <GraphView result={result} selectedId={selectedId} onSelect={setSelectedId} />
-        <SovereigntyPanel result={result} selectedId={selectedId} onSelect={setSelectedId} />
+        <GraphView
+          result={result}
+          focusPathId={selected?.flow?.pathId ?? null}
+          focusNodeIds={focusNodeIds}
+          focusNonce={focusNonce}
+          focusLabel={flowCaption(selected)}
+          onSelectPath={handleSelectPath}
+          onSelectNode={handleSelectNode}
+        />
+        <SovereigntyPanel
+          result={result}
+          lead={activeEntry?.sentence}
+          vulns={vulns}
+          selectedVulnId={selectedVulnId}
+          onSelectVuln={setSelectedVulnId}
+          onShowFlow={() => setFocusNonce((n) => n + 1)}
+        />
       </main>
     </div>
   );

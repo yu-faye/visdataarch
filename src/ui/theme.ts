@@ -43,6 +43,12 @@ export const SEVERITY_COLOR: Record<Severity, string> = {
   info: '#3f7fd6',
 };
 
+export const SEVERITY_LABEL: Record<Severity, string> = {
+  critical: 'Critical',
+  warn: 'Watch',
+  info: 'Note',
+};
+
 export const DATA_CLASS_LABEL: Record<DataClass, string> = {
   pii: 'personal data',
   auth: 'credentials',
